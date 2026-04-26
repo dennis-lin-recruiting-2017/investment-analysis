@@ -65,6 +65,12 @@ type InvestmentRow struct {
 	Name                  string                        `gorm:"column:name;not null"`
 	Ticker                string                        `gorm:"column:ticker;not null;default:''"`
 	AssetClass            string                        `gorm:"column:asset_class;not null"`
+	PurchasePrice         float64                       `gorm:"column:purchase_price;not null;default:0"`
+	CouponRate            float64                       `gorm:"column:coupon_rate;not null;default:0"`
+	MaturityDate          string                        `gorm:"column:maturity_date;not null;default:''"`
+	CallableDateStart     string                        `gorm:"column:callable_date_start;not null;default:''"`
+	CallPrice             float64                       `gorm:"column:call_price;not null;default:0"`
+	CallDate              string                        `gorm:"column:call_date;not null;default:''"`
 	Thesis                string                        `gorm:"column:thesis;not null"`
 	TargetAllocation      string                        `gorm:"column:target_allocation;not null;default:''"`
 	InitialInvestment     float64                       `gorm:"column:initial_investment;not null;default:0"`
@@ -116,6 +122,12 @@ func (r InvestmentRow) ToModel() model2.Investment {
 		Name:                  r.Name,
 		Ticker:                r.Ticker,
 		AssetClass:            r.AssetClass,
+		PurchasePrice:         r.PurchasePrice,
+		CouponRate:            r.CouponRate,
+		MaturityDate:          r.MaturityDate,
+		CallableDateStart:     r.CallableDateStart,
+		CallPrice:             r.CallPrice,
+		CallDate:              r.CallDate,
 		Thesis:                r.Thesis,
 		TargetAllocation:      r.TargetAllocation,
 		InitialInvestment:     r.InitialInvestment,
@@ -135,6 +147,12 @@ func NewInvestmentRow(investment model2.Investment) InvestmentRow {
 		Name:                  investment.Name,
 		Ticker:                investment.Ticker,
 		AssetClass:            investment.AssetClass,
+		PurchasePrice:         investment.PurchasePrice,
+		CouponRate:            investment.CouponRate,
+		MaturityDate:          investment.MaturityDate,
+		CallableDateStart:     investment.CallableDateStart,
+		CallPrice:             investment.CallPrice,
+		CallDate:              investment.CallDate,
 		Thesis:                investment.Thesis,
 		TargetAllocation:      investment.TargetAllocation,
 		InitialInvestment:     investment.InitialInvestment,

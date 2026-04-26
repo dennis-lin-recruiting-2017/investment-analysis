@@ -14,6 +14,12 @@ export type Investment = {
   name: string;
   ticker: string;
   assetClass: string;
+  purchasePrice: number;
+  couponRate: number;
+  maturityDate: string;
+  callableDateStart: string;
+  callPrice: number;
+  callDate: string;
   thesis: string;
   targetAllocation: string;
   initialInvestment: number;

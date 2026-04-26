@@ -5,6 +5,12 @@ type Investment struct {
 	Name                  string                     `json:"name"`
 	Ticker                string                     `json:"ticker"`
 	AssetClass            string                     `json:"assetClass"`
+	PurchasePrice         float64                    `json:"purchasePrice"`
+	CouponRate            float64                    `json:"couponRate"`
+	MaturityDate          string                     `json:"maturityDate"`
+	CallableDateStart     string                     `json:"callableDateStart"`
+	CallPrice             float64                    `json:"callPrice"`
+	CallDate              string                     `json:"callDate"`
 	Thesis                string                     `json:"thesis"`
 	TargetAllocation      string                     `json:"targetAllocation"`
 	InitialInvestment     float64                    `json:"initialInvestment"`
