@@ -39,6 +39,28 @@ const initialForm: InvestmentInput = {
   notes: '',
 };
 
+function formatDollarInput(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 20,
+  }).format(value);
+}
+
+function formatPercentInput(value: number): string {
+  return `${new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+  }).format(value)}%`;
+}
+
+function parseNumericInput(value: string): number {
+  const cleaned = value.replace(/[^0-9.-]/g, '');
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function isBondAssetClass(assetClass: string): boolean {
   return assetClass === 'Bond - US Treasury'
     || assetClass === 'Bond - State or Municipal'
@@ -48,6 +70,10 @@ function isBondAssetClass(assetClass: string): boolean {
 export default function InvestmentIntake() {
   const navigate = useNavigate();
   const [form, setForm] = useState<InvestmentInput>(initialForm);
+  const [purchasePriceInput, setPurchasePriceInput] = useState(formatDollarInput(initialForm.purchasePrice));
+  const [couponRateInput, setCouponRateInput] = useState(formatPercentInput(initialForm.couponRate));
+  const [callPriceInput, setCallPriceInput] = useState(formatDollarInput(initialForm.callPrice));
+  const [initialInvestmentInput, setInitialInvestmentInput] = useState(formatDollarInput(initialForm.initialInvestment));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedInvestment, setSavedInvestment] = useState<Investment | null>(null);
@@ -79,6 +105,10 @@ export default function InvestmentIntake() {
   const handleClear = () => {
     setError(null);
     setForm(initialForm);
+    setPurchasePriceInput(formatDollarInput(initialForm.purchasePrice));
+    setCouponRateInput(formatPercentInput(initialForm.couponRate));
+    setCallPriceInput(formatDollarInput(initialForm.callPrice));
+    setInitialInvestmentInput(formatDollarInput(initialForm.initialInvestment));
   };
 
   const continueToInvestment = () => {
@@ -226,18 +256,30 @@ export default function InvestmentIntake() {
               <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
                 <TextField
                   label="Purchase price"
-                  value={form.purchasePrice}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) => update('purchasePrice', Number(event.target.value))}
-                  type="number"
-                  inputProps={{ step: 0.01 }}
+                  value={purchasePriceInput}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                    const value = event.target.value;
+                    setPurchasePriceInput(value);
+                    update('purchasePrice', parseNumericInput(value));
+                  }}
+                  onBlur={() => {
+                    setPurchasePriceInput(formatDollarInput(form.purchasePrice));
+                  }}
+                  inputProps={{ inputMode: 'decimal' }}
                   fullWidth
                 />
                 <TextField
                   label="Coupon rate"
-                  value={form.couponRate}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) => update('couponRate', Number(event.target.value))}
-                  type="number"
-                  inputProps={{ step: 0.01 }}
+                  value={couponRateInput}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                    const value = event.target.value;
+                    setCouponRateInput(value);
+                    update('couponRate', parseNumericInput(value));
+                  }}
+                  onBlur={() => {
+                    setCouponRateInput(formatPercentInput(form.couponRate));
+                  }}
+                  inputProps={{ inputMode: 'decimal' }}
                   fullWidth
                 />
               </Stack>
@@ -264,10 +306,16 @@ export default function InvestmentIntake() {
               <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
                 <TextField
                   label="Call price"
-                  value={form.callPrice}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) => update('callPrice', Number(event.target.value))}
-                  type="number"
-                  inputProps={{ step: 0.01 }}
+                  value={callPriceInput}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                    const value = event.target.value;
+                    setCallPriceInput(value);
+                    update('callPrice', parseNumericInput(value));
+                  }}
+                  onBlur={() => {
+                    setCallPriceInput(formatDollarInput(form.callPrice));
+                  }}
+                  inputProps={{ inputMode: 'decimal' }}
                   fullWidth
                 />
                 <TextField
@@ -293,10 +341,16 @@ export default function InvestmentIntake() {
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField
               label="Initial investment"
-              value={form.initialInvestment}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => update('initialInvestment', Number(event.target.value))}
-              type="number"
-              inputProps={{ step: 0.01 }}
+              value={initialInvestmentInput}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                const value = event.target.value;
+                setInitialInvestmentInput(value);
+                update('initialInvestment', parseNumericInput(value));
+              }}
+              onBlur={() => {
+                setInitialInvestmentInput(formatDollarInput(form.initialInvestment));
+              }}
+              inputProps={{ inputMode: 'decimal' }}
               fullWidth
             />
 

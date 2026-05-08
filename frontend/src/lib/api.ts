@@ -147,6 +147,16 @@ export async function updateInvestment(uuid: string, payload: InvestmentInput): 
   return parseResponse<Investment>(response);
 }
 
+export async function deleteInvestment(uuid: string): Promise<void> {
+  const response = await fetch(`${apiBase}/investments/${uuid}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Delete failed with ${response.status}`);
+  }
+}
+
 export async function listInvestmentExpenses(uuid: string): Promise<InvestmentExpense[]> {
   const response = await fetch(`${apiBase}/investments/${uuid}/expenses`);
   return parseResponse<InvestmentExpense[]>(response);

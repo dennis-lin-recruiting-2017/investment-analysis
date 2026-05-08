@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"context"
 	"errors"
 	model2 "investment-analysis/persistence/model"
 )
@@ -19,6 +20,7 @@ type InvestmentStore interface {
 	GetInvestment(investmentUUID string) (model2.Investment, error)
 	CreateInvestment(investment model2.Investment) (model2.Investment, error)
 	UpdateInvestment(investmentUUID string, investment model2.Investment) (model2.Investment, error)
+	DeleteInvestment(investmentUUID string) error
 	ListInvestmentCategories(investmentUUID string) ([]string, error)
 	CreateInvestmentCategory(investmentUUID string, name string) error
 	UpdateInvestmentCategory(investmentUUID string, currentName string, newName string) error
@@ -33,8 +35,22 @@ type InvestmentStore interface {
 	DeleteInvestmentSaleAssumption(investmentUUID string, assumptionID int64) error
 }
 
+type RetrievalStore interface {
+	DocumentExists(ctx context.Context, key string) (bool, error)
+	InsertDocument(ctx context.Context, doc model2.StoredDocument) error
+	LogRetrievalAttempt(ctx context.Context, attempt model2.RetrievalAttempt) error
+	GetDocumentBody(ctx context.Context, key string) ([]byte, error)
+}
+
+type RetrievalSettingsStore interface {
+	GetRetrievalSettings() (model2.RetrievalSettings, error)
+	UpsertRetrievalSettings(settings model2.RetrievalSettings) error
+}
+
 type Store interface {
 	SettingsStore
 	InvestmentStore
+	RetrievalStore
+	RetrievalSettingsStore
 	Close() error
 }

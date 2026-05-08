@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"runtime"
 
-	"investment-analysis/handlers"
+	apphttp "investment-analysis/http"
 	"investment-analysis/persistence"
 	"investment-analysis/persistence/postgres"
 	"investment-analysis/persistence/sqlite"
@@ -77,7 +77,7 @@ func main() {
 
 	go func() {
 		apiMux := http.NewServeMux()
-		handlers.RegisterAPI(apiMux, db)
+		apphttp.RegisterAPI(apiMux, db)
 		log.Printf("API listening on %s", apiAddr)
 		if err := http.ListenAndServe(apiAddr, apiMux); err != nil {
 			log.Fatalf("API server stopped: %v", err)
@@ -85,8 +85,8 @@ func main() {
 	}()
 
 	uiMux := http.NewServeMux()
-	handlers.RegisterAPI(uiMux, db)
-	handlers.RegisterStatic(uiMux, embeddedUI, "/api")
+	apphttp.RegisterAPI(uiMux, db)
+	apphttp.RegisterStatic(uiMux, embeddedUI, "/api")
 	log.Printf("UI listening on %s", uiAddr)
 
 	if !*noBrowser {

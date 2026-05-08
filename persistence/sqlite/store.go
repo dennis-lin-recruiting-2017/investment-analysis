@@ -254,12 +254,64 @@ func migrate(db *gorm.DB) error {
 		return err
 	}
 
+	if err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS documents (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			doc_key TEXT NOT NULL UNIQUE,
+			document_type TEXT NOT NULL,
+			ticker TEXT NOT NULL,
+			fiscal_year INTEGER NOT NULL,
+			fiscal_quarter INTEGER NOT NULL,
+			form TEXT NOT NULL DEFAULT '',
+			source_url TEXT NOT NULL DEFAULT '',
+			output_label TEXT NOT NULL DEFAULT '',
+			mime_type TEXT NOT NULL DEFAULT '',
+			body BLOB NOT NULL,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)
+	`).Error; err != nil {
+		return err
+	}
+
+	if err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS retrieval_attempts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			doc_key TEXT NOT NULL,
+			document_type TEXT NOT NULL,
+			ticker TEXT NOT NULL,
+			fiscal_year INTEGER NOT NULL,
+			fiscal_quarter INTEGER NOT NULL,
+			status TEXT NOT NULL,
+			message TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)
+	`).Error; err != nil {
+		return err
+	}
+
+	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_retrieval_attempts_doc_key ON retrieval_attempts(doc_key)`).Error; err != nil {
+		return err
+	}
+
+	if err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS retrieval_settings (
+			id                        INTEGER PRIMARY KEY DEFAULT 1,
+			playwright_timeout_seconds INTEGER NOT NULL DEFAULT 300,
+			updated_at                TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)
+	`).Error; err != nil {
+		return err
+	}
+
 	return db.AutoMigrate(
 		&persistence.LLMSettingsRow{},
 		&persistence.InvestmentRow{},
 		&persistence.InvestmentCategoryRow{},
 		&persistence.InvestmentExpenseRow{},
 		&persistence.InvestmentSaleAssumptionRow{},
+		&persistence.DocumentRow{},
+		&persistence.RetrievalAttemptRow{},
+		&persistence.RetrievalSettingsRow{},
 	)
 }
 

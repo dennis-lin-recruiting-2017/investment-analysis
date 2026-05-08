@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"context"
 	"errors"
 	model2 "investment-analysis/persistence/model"
 	"strings"
@@ -72,6 +73,32 @@ func (s *GormStore) UpsertSettings(settings model2.LLMSettings) error {
 
 func (s *GormStore) DeleteSettings(provider string) error {
 	return s.db.Delete(&LLMSettingsRow{}, "provider = ?", provider).Error
+}
+
+func (s *GormStore) GetRetrievalSettings() (model2.RetrievalSettings, error) {
+	var row RetrievalSettingsRow
+	if err := s.db.First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return model2.DefaultRetrievalSettings(), nil
+		}
+		return model2.RetrievalSettings{}, err
+	}
+	return row.ToModel(), nil
+}
+
+func (s *GormStore) UpsertRetrievalSettings(settings model2.RetrievalSettings) error {
+	row := RetrievalSettingsRow{
+		ID:                       1,
+		PlaywrightTimeoutSeconds: settings.PlaywrightTimeoutSeconds,
+		UpdatedAt:                currentTimestamp(),
+	}
+	return s.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"playwright_timeout_seconds": row.PlaywrightTimeoutSeconds,
+			"updated_at":                row.UpdatedAt,
+		}),
+	}).Create(&row).Error
 }
 
 func (s *GormStore) ListInvestments() ([]model2.Investment, error) {
@@ -240,6 +267,29 @@ func (s *GormStore) UpdateInvestment(investmentUUID string, investment model2.In
 	return s.GetInvestment(investmentUUID)
 }
 
+func (s *GormStore) DeleteInvestment(investmentUUID string) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&InvestmentExpenseRow{}, "investment_uuid = ?", investmentUUID).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&InvestmentSaleAssumptionRow{}, "investment_uuid = ?", investmentUUID).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&InvestmentCategoryRow{}, "investment_uuid = ?", investmentUUID).Error; err != nil {
+			return err
+		}
+
+		result := tx.Delete(&InvestmentRow{}, "uuid = ?", investmentUUID)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
+}
+
 func (s *GormStore) ListInvestmentExpenses(investmentUUID string) ([]model2.InvestmentExpense, error) {
 	var rows []InvestmentExpenseRow
 	if err := s.db.Where("investment_uuid = ?", investmentUUID).Order(expenseOrderClause).Find(&rows).Error; err != nil {
@@ -380,6 +430,53 @@ func (s *GormStore) DeleteInvestmentSaleAssumption(investmentUUID string, assump
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (s *GormStore) DocumentExists(ctx context.Context, key string) (bool, error) {
+	var count int64
+	err := s.db.WithContext(ctx).Model(&DocumentRow{}).Where("doc_key = ?", key).Count(&count).Error
+	return count > 0, err
+}
+
+func (s *GormStore) InsertDocument(ctx context.Context, doc model2.StoredDocument) error {
+	row := DocumentRow{
+		DocKey:        doc.Key,
+		DocumentType:  doc.DocumentType,
+		Ticker:        doc.Ticker,
+		FiscalYear:    doc.FiscalYear,
+		FiscalQuarter: doc.FiscalQtr,
+		Form:          doc.Form,
+		SourceURL:     doc.SourceURL,
+		OutputLabel:   doc.OutputLabel,
+		MimeType:      doc.MimeType,
+		Body:          doc.Body,
+	}
+	return s.db.WithContext(ctx).Create(&row).Error
+}
+
+func (s *GormStore) LogRetrievalAttempt(ctx context.Context, attempt model2.RetrievalAttempt) error {
+	row := RetrievalAttemptRow{
+		DocKey:        attempt.DocKey,
+		DocumentType:  attempt.DocumentType,
+		Ticker:        attempt.Ticker,
+		FiscalYear:    attempt.FiscalYear,
+		FiscalQuarter: attempt.FiscalQuarter,
+		Status:        attempt.Status,
+		Message:       attempt.Message,
+	}
+	return s.db.WithContext(ctx).Create(&row).Error
+}
+
+func (s *GormStore) GetDocumentBody(ctx context.Context, key string) ([]byte, error) {
+	var row DocumentRow
+	err := s.db.WithContext(ctx).Where("doc_key = ?", key).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return row.Body, nil
 }
 
 var _ Store = (*GormStore)(nil)

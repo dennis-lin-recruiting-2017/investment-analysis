@@ -6,11 +6,22 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
   Stack,
   TextField,
+  type SelectChangeEvent,
 } from '@mui/material';
 import type { ChangeEvent, FormEvent } from 'react';
 import type { InvestmentInput } from '../../lib/api';
+
+function isBondAssetClass(assetClass: string): boolean {
+  return assetClass === 'Bond - US Treasury'
+    || assetClass === 'Bond - State or Municipal'
+    || assetClass === 'Bond - Corporate';
+}
 
 type Props = {
   open: boolean;
@@ -59,14 +70,89 @@ export default function InvestmentDetailsDialog({
               onChange={(event: ChangeEvent<HTMLInputElement>) => onChange('ticker', event.target.value)}
               fullWidth
             />
-            <TextField
+          </Stack>
+
+          <FormControl fullWidth>
+            <InputLabel id="investment-details-asset-class-label">Asset class</InputLabel>
+            <Select
+              labelId="investment-details-asset-class-label"
               label="Asset class"
               value={form.assetClass}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => onChange('assetClass', event.target.value)}
-              required
-              fullWidth
-            />
-          </Stack>
+              onChange={(event: SelectChangeEvent) => onChange('assetClass', event.target.value)}
+            >
+              <MenuItem value="Stock">Stock</MenuItem>
+              <MenuItem value="ETF">ETF</MenuItem>
+              <MenuItem value="Bond - US Treasury">Bond - US Treasury</MenuItem>
+              <MenuItem value="Bond - State or Municipal">Bond - State or Municipal</MenuItem>
+              <MenuItem value="Bond - Corporate">Bond - Corporate</MenuItem>
+              <MenuItem value="Fund">Fund</MenuItem>
+              <MenuItem value="Residential Real Estate">Residential Real Estate</MenuItem>
+              <MenuItem value="Commercial Real Estate">Commercial Real Estate</MenuItem>
+              <MenuItem value="Private investment">Private investment</MenuItem>
+              <MenuItem value="Other">Other</MenuItem>
+            </Select>
+          </FormControl>
+
+          {isBondAssetClass(form.assetClass) ? (
+            <>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                <TextField
+                  label="Purchase price"
+                  value={form.purchasePrice}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => onChange('purchasePrice', Number(event.target.value))}
+                  type="number"
+                  inputProps={{ step: 0.01 }}
+                  fullWidth
+                />
+                <TextField
+                  label="Coupon rate"
+                  value={form.couponRate}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => onChange('couponRate', Number(event.target.value))}
+                  type="number"
+                  inputProps={{ step: 0.01 }}
+                  fullWidth
+                />
+              </Stack>
+
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                <TextField
+                  label="Maturity date"
+                  value={form.maturityDate}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => onChange('maturityDate', event.target.value)}
+                  type="date"
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+                <TextField
+                  label="Callable date start"
+                  value={form.callableDateStart}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => onChange('callableDateStart', event.target.value)}
+                  type="date"
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+              </Stack>
+
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                <TextField
+                  label="Call price"
+                  value={form.callPrice}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => onChange('callPrice', Number(event.target.value))}
+                  type="number"
+                  inputProps={{ step: 0.01 }}
+                  fullWidth
+                />
+                <TextField
+                  label="Call date"
+                  value={form.callDate}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => onChange('callDate', event.target.value)}
+                  type="date"
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+              </Stack>
+            </>
+          ) : null}
 
           <TextField
             label="Target allocation"

@@ -349,3 +349,93 @@ func NewInvestmentExpenseRow(expense model2.InvestmentExpense) InvestmentExpense
 		UpdatedAt:           expense.UpdatedAt,
 	}
 }
+
+// DocumentRow is the GORM model for the documents table.
+type DocumentRow struct {
+	ID            int64  `gorm:"column:id;primaryKey;autoIncrement"`
+	DocKey        string `gorm:"column:doc_key;not null;uniqueIndex;default:''"`
+	DocumentType  string `gorm:"column:document_type;not null;default:''"`
+	Ticker        string `gorm:"column:ticker;not null;default:''"`
+	FiscalYear    int    `gorm:"column:fiscal_year;not null;default:0"`
+	FiscalQuarter int    `gorm:"column:fiscal_quarter;not null;default:0"`
+	Form          string `gorm:"column:form;not null;default:''"`
+	SourceURL     string `gorm:"column:source_url;not null;default:''"`
+	OutputLabel   string `gorm:"column:output_label;not null;default:''"`
+	MimeType      string `gorm:"column:mime_type;not null;default:''"`
+	Body          []byte `gorm:"column:body;not null"`
+	CreatedAt     string `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP"`
+}
+
+func (DocumentRow) TableName() string { return "documents" }
+
+func (r *DocumentRow) BeforeCreate(_ *gorm.DB) error {
+	if r.CreatedAt == "" {
+		r.CreatedAt = currentTimestamp()
+	}
+	return nil
+}
+
+func (r DocumentRow) ToModel() model2.StoredDocument {
+	return model2.StoredDocument{
+		Key:          r.DocKey,
+		DocumentType: r.DocumentType,
+		Ticker:       r.Ticker,
+		FiscalYear:  r.FiscalYear,
+		FiscalQtr:   r.FiscalQuarter,
+		Form:        r.Form,
+		SourceURL:   r.SourceURL,
+		OutputLabel: r.OutputLabel,
+		MimeType:    r.MimeType,
+		Body:        r.Body,
+	}
+}
+
+// RetrievalAttemptRow is the GORM model for the retrieval_attempts table.
+type RetrievalAttemptRow struct {
+	ID            int64  `gorm:"column:id;primaryKey;autoIncrement"`
+	DocKey        string `gorm:"column:doc_key;not null;index;default:''"`
+	DocumentType  string `gorm:"column:document_type;not null;default:''"`
+	Ticker        string `gorm:"column:ticker;not null;default:''"`
+	FiscalYear    int    `gorm:"column:fiscal_year;not null;default:0"`
+	FiscalQuarter int    `gorm:"column:fiscal_quarter;not null;default:0"`
+	Status        string `gorm:"column:status;not null;default:''"`
+	Message       string `gorm:"column:message;not null;default:''"`
+	CreatedAt     string `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP"`
+}
+
+func (RetrievalAttemptRow) TableName() string { return "retrieval_attempts" }
+
+func (r *RetrievalAttemptRow) BeforeCreate(_ *gorm.DB) error {
+	if r.CreatedAt == "" {
+		r.CreatedAt = currentTimestamp()
+	}
+	return nil
+}
+
+// RetrievalSettingsRow is the GORM model for the retrieval_settings table.
+// The table always holds exactly one row (id = 1).
+type RetrievalSettingsRow struct {
+	ID                       int    `gorm:"column:id;primaryKey;default:1"`
+	PlaywrightTimeoutSeconds int    `gorm:"column:playwright_timeout_seconds;not null;default:300"`
+	UpdatedAt                string `gorm:"column:updated_at;not null;default:CURRENT_TIMESTAMP"`
+}
+
+func (RetrievalSettingsRow) TableName() string { return "retrieval_settings" }
+
+func (r *RetrievalSettingsRow) BeforeCreate(_ *gorm.DB) error {
+	if r.UpdatedAt == "" {
+		r.UpdatedAt = currentTimestamp()
+	}
+	return nil
+}
+
+func (r *RetrievalSettingsRow) BeforeUpdate(_ *gorm.DB) error {
+	r.UpdatedAt = currentTimestamp()
+	return nil
+}
+
+func (r RetrievalSettingsRow) ToModel() model2.RetrievalSettings {
+	return model2.RetrievalSettings{
+		PlaywrightTimeoutSeconds: r.PlaywrightTimeoutSeconds,
+	}
+}
