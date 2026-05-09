@@ -88,7 +88,7 @@ func (c *Client) Close() error {
 // mode is a short identifier for the kind of document (e.g. "press-release",
 // "annual-report"); it is stored alongside the document for later retrieval.
 // outputLabel is an optional human-readable label.
-func (c *Client) SaveDocument(ctx context.Context, url, key, document_type, outputLabel string) error {
+func (c *Client) SaveDocument(ctx context.Context, url, key string, documentType model.DocumentType, outputLabel string) error {
 	exists, err := c.store.DocumentExists(ctx, key)
 	if err != nil {
 		return err
@@ -96,7 +96,7 @@ func (c *Client) SaveDocument(ctx context.Context, url, key, document_type, outp
 	if exists {
 		return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
 			DocKey:       key,
-			DocumentType: document_type,
+			DocumentType: documentType,
 			Status:       "skipped_exists",
 			Message:      "document already exists; retrieval skipped",
 		})
@@ -106,7 +106,7 @@ func (c *Client) SaveDocument(ctx context.Context, url, key, document_type, outp
 	if err != nil {
 		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
 			DocKey:       key,
-			DocumentType: document_type,
+			DocumentType: documentType,
 			Status:       "error",
 			Message:      err.Error(),
 		})
@@ -115,7 +115,7 @@ func (c *Client) SaveDocument(ctx context.Context, url, key, document_type, outp
 
 	doc := model.StoredDocument{
 		Key:          key,
-		DocumentType: document_type,
+		DocumentType: documentType,
 		SourceURL:    url,
 		OutputLabel:  outputLabel,
 		MimeType:     mimeType,
@@ -126,7 +126,7 @@ func (c *Client) SaveDocument(ctx context.Context, url, key, document_type, outp
 	}
 	return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
 		DocKey:       key,
-		DocumentType: document_type,
+		DocumentType: documentType,
 		Status:       "stored",
 		Message:      fmt.Sprintf("stored %d bytes from %s at %s", len(body), url, time.Now().UTC().Format(time.RFC3339)),
 	})

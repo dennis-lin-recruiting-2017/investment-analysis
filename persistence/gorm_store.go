@@ -441,7 +441,7 @@ func (s *GormStore) DocumentExists(ctx context.Context, key string) (bool, error
 func (s *GormStore) InsertDocument(ctx context.Context, doc model2.StoredDocument) error {
 	row := DocumentRow{
 		DocKey:        doc.Key,
-		DocumentType:  doc.DocumentType,
+		DocumentType:  string(doc.DocumentType),
 		Ticker:        doc.Ticker,
 		FiscalYear:    doc.FiscalYear,
 		FiscalQuarter: doc.FiscalQtr,
@@ -457,7 +457,7 @@ func (s *GormStore) InsertDocument(ctx context.Context, doc model2.StoredDocumen
 func (s *GormStore) LogRetrievalAttempt(ctx context.Context, attempt model2.RetrievalAttempt) error {
 	row := RetrievalAttemptRow{
 		DocKey:        attempt.DocKey,
-		DocumentType:  attempt.DocumentType,
+		DocumentType:  string(attempt.DocumentType),
 		Ticker:        attempt.Ticker,
 		FiscalYear:    attempt.FiscalYear,
 		FiscalQuarter: attempt.FiscalQuarter,

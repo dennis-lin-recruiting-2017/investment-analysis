@@ -106,7 +106,7 @@ func (c *Client) SaveMuniBondQuote(ctx context.Context, cusip, emmaSession, out 
 	}
 	if exists {
 		return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
-			DocKey: key, DocumentType: "muni-bond-quote", Ticker: cusip,
+			DocKey: key, DocumentType: model.MuniBondQuote, Ticker: cusip,
 			Status: "skipped_exists", Message: "muni bond quote already stored for " + today,
 		})
 	}
@@ -114,7 +114,7 @@ func (c *Client) SaveMuniBondQuote(ctx context.Context, cusip, emmaSession, out 
 	quote, sourceURL, err := c.fetchEMMABondQuote(ctx, cusip, emmaSession)
 	if err != nil {
 		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
-			DocKey: key, DocumentType: "muni-bond-quote", Ticker: cusip,
+			DocKey: key, DocumentType: model.MuniBondQuote, Ticker: cusip,
 			Status: "error", Message: err.Error(),
 		})
 		return err
@@ -127,7 +127,7 @@ func (c *Client) SaveMuniBondQuote(ctx context.Context, cusip, emmaSession, out 
 
 	doc := model.StoredDocument{
 		Key:         key,
-		DocumentType:  "muni-bond-quote",
+		DocumentType:  model.MuniBondQuote,
 		Ticker:      cusip,
 		SourceURL:   sourceURL,
 		OutputLabel: out,
@@ -143,7 +143,7 @@ func (c *Client) SaveMuniBondQuote(ctx context.Context, cusip, emmaSession, out 
 		msg += " (reference data only — " + quote.Note + ")"
 	}
 	return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
-		DocKey: key, DocumentType: "muni-bond-quote", Ticker: cusip,
+		DocKey: key, DocumentType: model.MuniBondQuote, Ticker: cusip,
 		Status: "stored", Message: msg,
 	})
 }

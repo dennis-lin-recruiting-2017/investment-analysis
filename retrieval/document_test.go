@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"investment-analysis/persistence"
+	"investment-analysis/persistence/model"
 )
 
 // openTestStore creates a real SQLite database in the test's temp directory.
@@ -47,7 +48,6 @@ func TestSaveDocument_Success(t *testing.T) {
 		wantBody = "<html><h1>Annual Report 2025</h1></html>"
 		wantMIME = "text/html; charset=utf-8"
 		key      = "annual-report|ACME|2025"
-		mode     = "annual-report"
 		label    = "ACME Corp 2025 Annual Report"
 	)
 
@@ -55,7 +55,7 @@ func TestSaveDocument_Success(t *testing.T) {
 	store := openTestStore(t)
 	client := NewClient("test-agent/1.0", store)
 
-	if err := client.SaveDocument(context.Background(), srv.URL, key, mode, label); err != nil {
+	if err := client.SaveDocument(context.Background(), srv.URL, key, model.AnnualReport, label); err != nil {
 		t.Fatalf("SaveDocument returned unexpected error: %v", err)
 	}
 
@@ -77,7 +77,7 @@ func TestSaveDocument_StoresMIMEType(t *testing.T) {
 	client := NewClient("", store)
 
 	key := "pdf-doc|test"
-	if err := client.SaveDocument(context.Background(), srv.URL, key, "pdf", ""); err != nil {
+	if err := client.SaveDocument(context.Background(), srv.URL, key, model.DocumentType("pdf"), ""); err != nil {
 		t.Fatalf("SaveDocument: %v", err)
 	}
 
@@ -111,7 +111,7 @@ func TestSaveDocument_AlreadyExists(t *testing.T) {
 	key := "dup-doc|001"
 
 	// First call — should fetch and store.
-	if err := client.SaveDocument(ctx, srv.URL, key, "test", ""); err != nil {
+	if err := client.SaveDocument(ctx, srv.URL, key, model.DocumentType("test"), ""); err != nil {
 		t.Fatalf("first SaveDocument: %v", err)
 	}
 	if requestCount != 1 {
@@ -119,7 +119,7 @@ func TestSaveDocument_AlreadyExists(t *testing.T) {
 	}
 
 	// Second call with the same key — must not hit the server again.
-	if err := client.SaveDocument(ctx, srv.URL, key, "test", ""); err != nil {
+	if err := client.SaveDocument(ctx, srv.URL, key, model.DocumentType("test"), ""); err != nil {
 		t.Fatalf("second SaveDocument (already exists): %v", err)
 	}
 	if requestCount != 1 {
@@ -135,7 +135,7 @@ func TestSaveDocument_ServerError(t *testing.T) {
 	client := NewClient("", store)
 
 	key := "error-doc|001"
-	err := client.SaveDocument(context.Background(), srv.URL, key, "test", "")
+	err := client.SaveDocument(context.Background(), srv.URL, key, model.DocumentType("test"), "")
 	if err == nil {
 		t.Fatal("expected error for 500 response, got nil")
 	}
@@ -161,7 +161,7 @@ func TestSaveDocument_NetworkFailure(t *testing.T) {
 	client := NewClient("", store)
 
 	key := "net-fail|001"
-	if err := client.SaveDocument(context.Background(), deadURL, key, "test", ""); err == nil {
+	if err := client.SaveDocument(context.Background(), deadURL, key, model.DocumentType("test"), ""); err == nil {
 		t.Fatal("expected network error, got nil")
 	}
 
@@ -184,7 +184,7 @@ func TestSaveDocument_FallbackMIMEType(t *testing.T) {
 	client := NewClient("", store)
 
 	key := "octet-doc|001"
-	if err := client.SaveDocument(context.Background(), srv.URL, key, "raw", ""); err != nil {
+	if err := client.SaveDocument(context.Background(), srv.URL, key, model.DocumentType("raw"), ""); err != nil {
 		t.Fatalf("SaveDocument: %v", err)
 	}
 
@@ -215,7 +215,7 @@ func TestSaveDocument_UserAgentForwarded(t *testing.T) {
 	store := openTestStore(t)
 	client := NewClient(wantUA, store)
 
-	if err := client.SaveDocument(context.Background(), srv.URL, "ua-doc|001", "test", ""); err != nil {
+	if err := client.SaveDocument(context.Background(), srv.URL, "ua-doc|001", model.DocumentType("test"), ""); err != nil {
 		t.Fatalf("SaveDocument: %v", err)
 	}
 	if gotUA != wantUA {
@@ -237,7 +237,7 @@ func TestSaveDocument_EmptyUserAgentUsesDefault(t *testing.T) {
 	store := openTestStore(t)
 	client := NewClient("", store) // blank → should use DefaultUserAgent
 
-	if err := client.SaveDocument(context.Background(), srv.URL, "default-ua|001", "test", ""); err != nil {
+	if err := client.SaveDocument(context.Background(), srv.URL, "default-ua|001", model.DocumentType("test"), ""); err != nil {
 		t.Fatalf("SaveDocument: %v", err)
 	}
 	if gotUA != DefaultUserAgent {

@@ -378,7 +378,7 @@ func (r *DocumentRow) BeforeCreate(_ *gorm.DB) error {
 func (r DocumentRow) ToModel() model2.StoredDocument {
 	return model2.StoredDocument{
 		Key:          r.DocKey,
-		DocumentType: r.DocumentType,
+		DocumentType: model2.DocumentType(r.DocumentType),
 		Ticker:       r.Ticker,
 		FiscalYear:  r.FiscalYear,
 		FiscalQtr:   r.FiscalQuarter,

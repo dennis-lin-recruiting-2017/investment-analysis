@@ -68,7 +68,7 @@ func (c *Client) SaveBondQuote(ctx context.Context, cusip, out string) error {
 	}
 	if exists {
 		return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
-			DocKey: key, DocumentType: "bond-quote", Ticker: cusip,
+			DocKey: key, DocumentType: model.BondQuote, Ticker: cusip,
 			Status: "skipped_exists", Message: "bond quote already stored for " + today,
 		})
 	}
@@ -76,7 +76,7 @@ func (c *Client) SaveBondQuote(ctx context.Context, cusip, out string) error {
 	quote, sourceURL, err := c.fetchFINRABondQuote(ctx, cusip)
 	if err != nil {
 		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
-			DocKey: key, DocumentType: "bond-quote", Ticker: cusip,
+			DocKey: key, DocumentType: model.BondQuote, Ticker: cusip,
 			Status: "error", Message: err.Error(),
 		})
 		return err
@@ -89,7 +89,7 @@ func (c *Client) SaveBondQuote(ctx context.Context, cusip, out string) error {
 
 	doc := model.StoredDocument{
 		Key:         key,
-		DocumentType:  "bond-quote",
+		DocumentType:  model.BondQuote,
 		Ticker:      cusip,
 		SourceURL:   sourceURL,
 		OutputLabel: out,
@@ -100,7 +100,7 @@ func (c *Client) SaveBondQuote(ctx context.Context, cusip, out string) error {
 		return err
 	}
 	return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
-		DocKey: key, DocumentType: "bond-quote", Ticker: cusip,
+		DocKey: key, DocumentType: model.BondQuote, Ticker: cusip,
 		Status:  "stored",
 		Message: fmt.Sprintf("FINRA TRACE quote stored for %s on %s", cusip, today),
 	})

@@ -70,7 +70,7 @@ func (c *Client) SaveTreasuryYields(ctx context.Context, out string) error {
 	curve, sourceURL, err := c.fetchLatestTreasuryYields(ctx)
 	if err != nil {
 		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
-			DocKey: "treasury-yields|unknown", DocumentType: "treasury-yields",
+			DocKey: "treasury-yields|unknown", DocumentType: model.TreasuryYields,
 			Ticker: "TREASURY-YIELDS",
 			Status: "error", Message: err.Error(),
 		})
@@ -85,7 +85,7 @@ func (c *Client) SaveTreasuryYields(ctx context.Context, out string) error {
 	}
 	if exists {
 		return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
-			DocKey: key, DocumentType: "treasury-yields", Ticker: "TREASURY-YIELDS",
+			DocKey: key, DocumentType: model.TreasuryYields, Ticker: "TREASURY-YIELDS",
 			Status:  "skipped_exists",
 			Message: "Treasury yield curve already stored for " + curve.Date,
 		})
@@ -98,7 +98,7 @@ func (c *Client) SaveTreasuryYields(ctx context.Context, out string) error {
 
 	doc := model.StoredDocument{
 		Key:         key,
-		DocumentType:  "treasury-yields",
+		DocumentType:  model.TreasuryYields,
 		Ticker:      "TREASURY-YIELDS",
 		SourceURL:   sourceURL,
 		OutputLabel: out,
@@ -109,7 +109,7 @@ func (c *Client) SaveTreasuryYields(ctx context.Context, out string) error {
 		return err
 	}
 	return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
-		DocKey: key, DocumentType: "treasury-yields", Ticker: "TREASURY-YIELDS",
+		DocKey: key, DocumentType: model.TreasuryYields, Ticker: "TREASURY-YIELDS",
 		Status:  "stored",
 		Message: fmt.Sprintf("Treasury yield curve stored for %s", curve.Date),
 	})
