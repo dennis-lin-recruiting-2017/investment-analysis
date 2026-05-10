@@ -1,38 +1,41 @@
+// Package postgres opens a Postgres connection, applies the application
+// schema, and returns a *persistence.Store.
 package postgres
 
 import (
-	"os"
+	"fmt"
+	"investment-analysis/util"
 
-	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"investment-analysis/persistence"
+	"investment-analysis/persistence/model"
 )
 
-type Store struct {
-	*persistence.GormStore
-}
-
-func Open() (*Store, error) {
-	dsn := os.Getenv("DATABASE_URL")
+// NewStore opens a Postgres connection at dsn, runs the full
+// application schema migration, and returns a *persistence.Store.
+// If dsn is empty a sensible localhost default is used.
+func NewStore(dsn string) (store *persistence.Store, err error) {
+	defer func() {
+		// dsn may contain credentials — log only whether one was supplied.
+		util.LogIfErr(nil, &err, "postgres.NewStore", "dsnSet", dsn != "")
+	}()
 	if dsn == "" {
 		dsn = "postgres://localhost/investment_analysis?sslmode=disable"
 	}
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		return nil, err
+	db, e := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if e != nil {
+		return nil, fmt.Errorf("postgres.NewStore: %w", e)
 	}
-
-	if err := migrate(db); err != nil {
-		return nil, err
+	if e := migrate(db); e != nil {
+		return nil, fmt.Errorf("postgres.NewStore: migrate: %w", e)
 	}
-
-	return &Store{GormStore: persistence.NewGormStore(db)}, nil
+	return persistence.NewStore(db), nil
 }
 
-func migrate(db *gorm.DB) error {
+func migrate(db *gorm.DB) (err error) {
+	defer func() { util.LogIfErr(nil, &err, "postgres.migrate") }()
 	if err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS llm_settings (
 			provider TEXT PRIMARY KEY,
@@ -49,8 +52,7 @@ func migrate(db *gorm.DB) error {
 
 	if err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS investments (
-			id BIGSERIAL PRIMARY KEY,
-			uuid TEXT,
+			uuid TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
 			ticker TEXT NOT NULL DEFAULT '',
 			asset_class TEXT NOT NULL,
@@ -73,7 +75,6 @@ func migrate(db *gorm.DB) error {
 	}
 
 	investmentStatements := []string{
-		`ALTER TABLE investments ADD COLUMN IF NOT EXISTS uuid TEXT`,
 		`ALTER TABLE investments ADD COLUMN IF NOT EXISTS ticker TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE investments ADD COLUMN IF NOT EXISTS purchase_price DOUBLE PRECISION NOT NULL DEFAULT 0`,
 		`ALTER TABLE investments ADD COLUMN IF NOT EXISTS coupon_rate DOUBLE PRECISION NOT NULL DEFAULT 0`,
@@ -87,7 +88,6 @@ func migrate(db *gorm.DB) error {
 		`ALTER TABLE investments ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE investments ADD COLUMN IF NOT EXISTS created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text`,
 		`ALTER TABLE investments ADD COLUMN IF NOT EXISTS updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_investments_uuid ON investments(uuid)`,
 	}
 	for _, statement := range investmentStatements {
 		if err := db.Exec(statement).Error; err != nil {
@@ -95,26 +95,9 @@ func migrate(db *gorm.DB) error {
 		}
 	}
 
-	type investmentIDRow struct {
-		ID int64 `gorm:"column:id"`
-	}
-	var investmentRows []investmentIDRow
-	if err := db.Raw(`SELECT id FROM investments WHERE uuid IS NULL OR uuid = ''`).Scan(&investmentRows).Error; err != nil {
-		return err
-	}
-	for _, row := range investmentRows {
-		investmentUUID, err := uuid.NewV6()
-		if err != nil {
-			return err
-		}
-		if err := db.Exec(`UPDATE investments SET uuid = $1 WHERE id = $2`, investmentUUID.String(), row.ID).Error; err != nil {
-			return err
-		}
-	}
-
 	if err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS investment_categories (
-			id BIGSERIAL PRIMARY KEY,
+			id TEXT PRIMARY KEY,
 			investment_uuid TEXT NOT NULL,
 			name TEXT NOT NULL,
 			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
@@ -140,7 +123,7 @@ func migrate(db *gorm.DB) error {
 
 	if err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS investment_expenses (
-			id BIGSERIAL PRIMARY KEY,
+			id TEXT PRIMARY KEY,
 			investment_uuid TEXT NOT NULL,
 			event_type TEXT NOT NULL DEFAULT 'cash-flow',
 			flow_type TEXT NOT NULL DEFAULT 'one-time',
@@ -165,7 +148,7 @@ func migrate(db *gorm.DB) error {
 
 	if err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS investment_sale_assumptions (
-			id BIGSERIAL PRIMARY KEY,
+			id TEXT PRIMARY KEY,
 			investment_uuid TEXT NOT NULL,
 			label TEXT NOT NULL,
 			amount DOUBLE PRECISION NOT NULL,
@@ -237,7 +220,8 @@ func migrate(db *gorm.DB) error {
 
 	if err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS documents (
-			id BIGSERIAL PRIMARY KEY,
+			id TEXT PRIMARY KEY,
+			investment_uuid TEXT NOT NULL DEFAULT '',
 			doc_key TEXT NOT NULL UNIQUE,
 			document_type TEXT NOT NULL,
 			ticker TEXT NOT NULL,
@@ -254,9 +238,22 @@ func migrate(db *gorm.DB) error {
 		return err
 	}
 
+	if err := db.Exec(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS investment_uuid TEXT NOT NULL DEFAULT ''`).Error; err != nil {
+		return err
+	}
+
+	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_documents_investment_uuid ON documents(investment_uuid)`).Error; err != nil {
+		return err
+	}
+
+	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_documents_investment_key ON documents(investment_uuid, doc_key)`).Error; err != nil {
+		return err
+	}
+
 	if err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS retrieval_attempts (
-			id BIGSERIAL PRIMARY KEY,
+			id TEXT PRIMARY KEY,
+			investment_uuid TEXT NOT NULL DEFAULT '',
 			doc_key TEXT NOT NULL,
 			document_type TEXT NOT NULL,
 			ticker TEXT NOT NULL,
@@ -270,7 +267,19 @@ func migrate(db *gorm.DB) error {
 		return err
 	}
 
+	if err := db.Exec(`ALTER TABLE retrieval_attempts ADD COLUMN IF NOT EXISTS investment_uuid TEXT NOT NULL DEFAULT ''`).Error; err != nil {
+		return err
+	}
+
 	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_retrieval_attempts_doc_key ON retrieval_attempts(doc_key)`).Error; err != nil {
+		return err
+	}
+
+	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_retrieval_attempts_investment_uuid ON retrieval_attempts(investment_uuid)`).Error; err != nil {
+		return err
+	}
+
+	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_retrieval_attempts_investment_key ON retrieval_attempts(investment_uuid, doc_key)`).Error; err != nil {
 		return err
 	}
 
@@ -284,16 +293,48 @@ func migrate(db *gorm.DB) error {
 		return err
 	}
 
+	if err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS inferences (
+			uuid                TEXT    NOT NULL PRIMARY KEY,
+			investment_uuid     TEXT    NOT NULL,
+			inference_key       TEXT    NOT NULL DEFAULT '',
+			model               TEXT    NOT NULL DEFAULT '',
+			prompt              TEXT    NOT NULL DEFAULT '',
+			response            TEXT    NOT NULL DEFAULT '',
+			processed_artifact  TEXT    NOT NULL DEFAULT '',
+			prompt_tokens       INTEGER NOT NULL DEFAULT 0,
+			completion_tokens   INTEGER NOT NULL DEFAULT 0,
+			total_tokens        INTEGER NOT NULL DEFAULT 0,
+			requested_at        TEXT    NOT NULL DEFAULT '',
+			responded_at        TEXT    NOT NULL DEFAULT '',
+			elapsed_ms          BIGINT  NOT NULL DEFAULT 0,
+			created_at          TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP::text
+		)
+	`).Error; err != nil {
+		return err
+	}
+
+	if err := db.Exec(`ALTER TABLE inferences ADD COLUMN IF NOT EXISTS inference_key TEXT NOT NULL DEFAULT ''`).Error; err != nil {
+		return err
+	}
+
+	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_inferences_investment_uuid ON inferences(investment_uuid)`).Error; err != nil {
+		return err
+	}
+
+	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_inferences_investment_key ON inferences(investment_uuid, inference_key)`).Error; err != nil {
+		return err
+	}
+
 	return db.AutoMigrate(
-		&persistence.LLMSettingsRow{},
-		&persistence.InvestmentRow{},
-		&persistence.InvestmentCategoryRow{},
-		&persistence.InvestmentExpenseRow{},
-		&persistence.InvestmentSaleAssumptionRow{},
-		&persistence.DocumentRow{},
-		&persistence.RetrievalAttemptRow{},
-		&persistence.RetrievalSettingsRow{},
+		&model.LLMSettings{},
+		&model.Investment{},
+		&model.InvestmentCategory{},
+		&model.InvestmentExpense{},
+		&model.InvestmentSaleAssumption{},
+		&model.Document{},
+		&model.RetrievalAttempt{},
+		&model.RetrievalSettings{},
+		&model.Inference{},
 	)
 }
-
-var _ persistence.Store = (*Store)(nil)

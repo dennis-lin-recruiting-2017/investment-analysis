@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"investment-analysis/util"
 	"io"
 	"net/http"
 	"os"
@@ -12,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"investment-analysis/persistence"
 	"investment-analysis/persistence/model"
+	"investment-analysis/retrieval"
 )
 
 const DefaultUserAgent = "go-download-web-archive/1.0 (contact: you@example.com)"
@@ -21,7 +22,8 @@ const DefaultUserAgent = "go-download-web-archive/1.0 (contact: you@example.com)
 type Client struct {
 	userAgent  string
 	httpClient *http.Client
-	store      persistence.RetrievalStore
+	docs       retrieval.DocumentsStore
+	attempts   retrieval.AttemptsStore
 	// transport overrides the HTTP transport for every http.Client created by
 	// this instance (including the EMMA session client).  Nil means
 	// http.DefaultTransport.  Set only in tests.
@@ -43,27 +45,32 @@ type filingRecord struct {
 	ReportDate      string
 }
 
-func NewClient(userAgent string, store persistence.RetrievalStore) *Client {
+func NewClient(userAgent string, docs retrieval.DocumentsStore, attempts retrieval.AttemptsStore) *Client {
 	if strings.TrimSpace(userAgent) == "" {
 		userAgent = DefaultUserAgent
 	}
 	return &Client{
 		userAgent:  userAgent,
 		httpClient: &http.Client{Timeout: 60 * time.Second},
-		store:      store,
+		docs:       docs,
+		attempts:   attempts,
 	}
 }
 
-func (c *Client) SaveFinancials(ctx context.Context, ticker string, year, quarter int, out string) error {
+func (c *Client) SaveFinancials(ctx context.Context, ticker string, year, quarter int, out string) (err error) {
+	defer func() {
+		util.LogIfErr(ctx, &err, "securities.Client.SaveFinancials",
+			"ticker", ticker, "year", year, "quarter", quarter, "out", out)
+	}()
 	ticker = strings.ToUpper(strings.TrimSpace(ticker))
 	key := docKey("sec-financials", ticker, year, quarter)
 
-	exists, err := c.store.DocumentExists(ctx, key)
+	exists, err := c.docs.Exists(ctx, key)
 	if err != nil {
 		return err
 	}
 	if exists {
-		return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		return c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.SECFinancials, Ticker: ticker,
 			FiscalYear: year, FiscalQuarter: quarter,
 			Status: "skipped_exists", Message: "document already exists; retrieval skipped",
@@ -72,7 +79,7 @@ func (c *Client) SaveFinancials(ctx context.Context, ticker string, year, quarte
 
 	entry, err := c.lookupTicker(ctx, ticker)
 	if err != nil {
-		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		_ = c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.SECFinancials, Ticker: ticker,
 			FiscalYear: year, FiscalQuarter: quarter,
 			Status: "error", Message: err.Error(),
@@ -83,7 +90,7 @@ func (c *Client) SaveFinancials(ctx context.Context, ticker string, year, quarte
 	factsURL := fmt.Sprintf("https://data.sec.gov/api/xbrl/companyfacts/CIK%010d.json", entry.CIKStr)
 	payload, err := c.fetchBytes(ctx, factsURL)
 	if err != nil {
-		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		_ = c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.SECFinancials, Ticker: ticker,
 			FiscalYear: year, FiscalQuarter: quarter,
 			Status: "error", Message: err.Error(),
@@ -93,7 +100,7 @@ func (c *Client) SaveFinancials(ctx context.Context, ticker string, year, quarte
 
 	var raw map[string]any
 	if err := json.Unmarshal(payload, &raw); err != nil {
-		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		_ = c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.SECFinancials, Ticker: ticker,
 			FiscalYear: year, FiscalQuarter: quarter,
 			Status: "error", Message: err.Error(),
@@ -116,32 +123,36 @@ func (c *Client) SaveFinancials(ctx context.Context, ticker string, year, quarte
 		return err
 	}
 
-	doc := model.StoredDocument{
-		Key: key, DocumentType: model.SECFinancials, Ticker: ticker,
-		FiscalYear: year, FiscalQtr: quarter,
+	doc := model.Document{
+		DocKey: key, DocumentType: model.SECFinancials, Ticker: ticker,
+		FiscalYear: year, FiscalQuarter: quarter,
 		SourceURL: factsURL, OutputLabel: out,
 		MimeType: "application/json", Body: body,
 	}
-	if err := c.store.InsertDocument(ctx, doc); err != nil {
+	if err := c.docs.Insert(ctx, &doc); err != nil {
 		return err
 	}
-	return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+	return c.attempts.Log(ctx, model.RetrievalAttempt{
 		DocKey: key, DocumentType: model.SECFinancials, Ticker: ticker,
 		FiscalYear: year, FiscalQuarter: quarter,
 		Status: "stored", Message: "financials stored in sqlite",
 	})
 }
 
-func (c *Client) SaveFiling(ctx context.Context, ticker string, year, quarter int, filingForm, out string) error {
+func (c *Client) SaveFiling(ctx context.Context, ticker string, year, quarter int, filingForm, out string) (err error) {
+	defer func() {
+		util.LogIfErr(ctx, &err, "securities.Client.SaveFiling",
+			"ticker", ticker, "year", year, "quarter", quarter, "form", filingForm, "out", out)
+	}()
 	ticker = strings.ToUpper(strings.TrimSpace(ticker))
 	key := docKey("sec-filing", ticker, year, quarter)
 
-	exists, err := c.store.DocumentExists(ctx, key)
+	exists, err := c.docs.Exists(ctx, key)
 	if err != nil {
 		return err
 	}
 	if exists {
-		return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		return c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.SECFiling, Ticker: ticker,
 			FiscalYear: year, FiscalQuarter: quarter,
 			Status: "skipped_exists", Message: "document already exists; retrieval skipped",
@@ -150,7 +161,7 @@ func (c *Client) SaveFiling(ctx context.Context, ticker string, year, quarter in
 
 	entry, err := c.lookupTicker(ctx, ticker)
 	if err != nil {
-		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		_ = c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.SECFiling, Ticker: ticker,
 			FiscalYear: year, FiscalQuarter: quarter,
 			Status: "error", Message: err.Error(),
@@ -160,7 +171,7 @@ func (c *Client) SaveFiling(ctx context.Context, ticker string, year, quarter in
 
 	record, archiveURL, err := c.resolveFiling(ctx, entry.CIKStr, year, quarter)
 	if err != nil {
-		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		_ = c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.SECFiling, Ticker: ticker,
 			FiscalYear: year, FiscalQuarter: quarter,
 			Status: "error", Message: err.Error(),
@@ -170,7 +181,7 @@ func (c *Client) SaveFiling(ctx context.Context, ticker string, year, quarter in
 
 	body, mimeType, err := c.fetchWithContentType(ctx, archiveURL)
 	if err != nil {
-		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		_ = c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.SECFiling, Ticker: ticker,
 			FiscalYear: year, FiscalQuarter: quarter,
 			Status: "error", Message: err.Error(),
@@ -180,7 +191,7 @@ func (c *Client) SaveFiling(ctx context.Context, ticker string, year, quarter in
 
 	if strings.TrimSpace(filingForm) != "" && strings.ToLower(strings.TrimSpace(filingForm)) != "auto" && !strings.EqualFold(record.Form, filingForm) {
 		msg := fmt.Sprintf("resolved form %s did not match requested %s", record.Form, filingForm)
-		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		_ = c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.SECFiling, Ticker: ticker,
 			FiscalYear: year, FiscalQuarter: quarter,
 			Status: "error", Message: msg,
@@ -188,31 +199,35 @@ func (c *Client) SaveFiling(ctx context.Context, ticker string, year, quarter in
 		return errors.New(msg)
 	}
 
-	doc := model.StoredDocument{
-		Key: key, DocumentType: model.SECFiling, Ticker: ticker,
-		FiscalYear: year, FiscalQtr: quarter,
+	doc := model.Document{
+		DocKey: key, DocumentType: model.SECFiling, Ticker: ticker,
+		FiscalYear: year, FiscalQuarter: quarter,
 		Form: record.Form, SourceURL: archiveURL, OutputLabel: out,
 		MimeType: mimeType, Body: body,
 	}
-	if err := c.store.InsertDocument(ctx, doc); err != nil {
+	if err := c.docs.Insert(ctx, &doc); err != nil {
 		return err
 	}
-	return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+	return c.attempts.Log(ctx, model.RetrievalAttempt{
 		DocKey: key, DocumentType: model.SECFiling, Ticker: ticker,
 		FiscalYear: year, FiscalQuarter: quarter,
 		Status: "stored", Message: fmt.Sprintf("stored %s from %s", record.Form, archiveURL),
 	})
 }
 
-func (c *Client) DumpDocumentToFile(ctx context.Context, key, path string) error {
-	body, err := c.store.GetDocumentBody(ctx, key)
+func (c *Client) DumpDocumentToFile(ctx context.Context, key, path string) (err error) {
+	defer func() {
+		util.LogIfErr(ctx, &err, "securities.Client.DumpDocumentToFile", "key", key, "path", path)
+	}()
+	body, err := c.docs.GetBody(ctx, key)
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, body, 0o644)
 }
 
-func (c *Client) lookupTicker(ctx context.Context, ticker string) (tickerEntry, error) {
+func (c *Client) lookupTicker(ctx context.Context, ticker string) (_ tickerEntry, err error) {
+	defer func() { util.LogIfErr(ctx, &err, "securities.Client.lookupTicker", "ticker", ticker) }()
 	payload, err := c.fetchBytes(ctx, "https://www.sec.gov/files/company_tickers.json")
 	if err != nil {
 		return tickerEntry{}, fmt.Errorf("fetch ticker map: %w", err)
@@ -229,7 +244,11 @@ func (c *Client) lookupTicker(ctx context.Context, ticker string) (tickerEntry, 
 	return tickerEntry{}, fmt.Errorf("ticker %s not found in SEC ticker map", ticker)
 }
 
-func (c *Client) resolveFiling(ctx context.Context, cik, year, quarter int) (filingRecord, string, error) {
+func (c *Client) resolveFiling(ctx context.Context, cik, year, quarter int) (_ filingRecord, _ string, err error) {
+	defer func() {
+		util.LogIfErr(ctx, &err, "securities.Client.resolveFiling",
+			"cik", cik, "year", year, "quarter", quarter)
+	}()
 	submissionsURL := fmt.Sprintf("https://data.sec.gov/submissions/CIK%010d.json", cik)
 	payload, err := c.fetchBytes(ctx, submissionsURL)
 	if err != nil {
@@ -291,12 +310,14 @@ func (c *Client) resolveFiling(ctx context.Context, cik, year, quarter int) (fil
 	return chosen, archiveURL, nil
 }
 
-func (c *Client) fetchBytes(ctx context.Context, url string) ([]byte, error) {
+func (c *Client) fetchBytes(ctx context.Context, url string) (_ []byte, err error) {
+	defer func() { util.LogIfErr(ctx, &err, "securities.Client.fetchBytes", "url", url) }()
 	body, _, err := c.fetchWithContentType(ctx, url)
 	return body, err
 }
 
-func (c *Client) fetchWithContentType(ctx context.Context, url string) ([]byte, string, error) {
+func (c *Client) fetchWithContentType(ctx context.Context, url string) (_ []byte, _ string, err error) {
+	defer func() { util.LogIfErr(ctx, &err, "securities.Client.fetchWithContentType", "url", url) }()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, "", err

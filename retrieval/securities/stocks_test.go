@@ -1,8 +1,8 @@
 package securities
 
 import (
-	"context"
 	"encoding/json"
+	"investment-analysis/util"
 	"strings"
 	"testing"
 )
@@ -220,7 +220,7 @@ func TestSaveFinancials_AlreadyExists(t *testing.T) {
 	store.docs[key] = []byte(`{}`) // pre-seed so DocumentExists returns true
 
 	c := newTestClient(store, &mockTransport{})
-	if err := c.SaveFinancials(context.Background(), "AAPL", 2024, 1, ""); err != nil {
+	if err := c.SaveFinancials(util.NewTraceContext(), "AAPL", 2024, 1, ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -237,7 +237,7 @@ func TestSaveFinancials_Success(t *testing.T) {
 	mt.add("companyfacts", 200, mockCompanyFactsJSON)
 
 	c := newTestClient(store, mt)
-	if err := c.SaveFinancials(context.Background(), "aapl", 2024, 1, "test-out"); err != nil {
+	if err := c.SaveFinancials(util.NewTraceContext(), "aapl", 2024, 1, "test-out"); err != nil {
 		t.Fatalf("SaveFinancials error: %v", err)
 	}
 
@@ -268,7 +268,7 @@ func TestSaveFinancials_TickerNotFound(t *testing.T) {
 	mt.add("company_tickers.json", 200, `{"0":{"cik_str":320193,"ticker":"AAPL","title":"Apple"}}`)
 
 	c := newTestClient(store, mt)
-	err := c.SaveFinancials(context.Background(), "MSFT", 2024, 1, "")
+	err := c.SaveFinancials(util.NewTraceContext(), "MSFT", 2024, 1, "")
 	if err == nil {
 		t.Fatal("expected an error for unknown ticker, got nil")
 	}
@@ -297,7 +297,7 @@ func TestSaveFiling_AlreadyExists(t *testing.T) {
 	store.docs[key] = []byte(`{}`)
 
 	c := newTestClient(store, &mockTransport{})
-	if err := c.SaveFiling(context.Background(), "AAPL", 2024, 1, "", ""); err != nil {
+	if err := c.SaveFiling(util.NewTraceContext(), "AAPL", 2024, 1, "", ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -315,7 +315,7 @@ func TestSaveFiling_Success(t *testing.T) {
 	mt.add("Archives/edgar", 200, "<html>10-Q content</html>")
 
 	c := newTestClient(store, mt)
-	if err := c.SaveFiling(context.Background(), "AAPL", 2024, 1, "10-Q", ""); err != nil {
+	if err := c.SaveFiling(util.NewTraceContext(), "AAPL", 2024, 1, "10-Q", ""); err != nil {
 		t.Fatalf("SaveFiling error: %v", err)
 	}
 
@@ -339,7 +339,7 @@ func TestSaveFiling_FormMismatch(t *testing.T) {
 
 	c := newTestClient(store, mt)
 	// Request 10-K but the only available filing is 10-Q.
-	err := c.SaveFiling(context.Background(), "AAPL", 2024, 1, "10-K", "")
+	err := c.SaveFiling(util.NewTraceContext(), "AAPL", 2024, 1, "10-K", "")
 	if err == nil {
 		t.Fatal("expected form-mismatch error, got nil")
 	}

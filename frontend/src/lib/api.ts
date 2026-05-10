@@ -33,7 +33,7 @@ export type Investment = {
 };
 
 export type InvestmentSaleAssumption = {
-  id: number;
+  id: string;
   investmentUuid?: string;
   label: string;
   amount: number;
@@ -50,7 +50,7 @@ export type InvestmentSaleAssumption = {
 };
 
 export type InvestmentExpense = {
-  id: number;
+  id: string;
   investmentUuid?: string;
   eventType: 'cash-flow' | 'deferred-tax';
   flowType: 'one-time' | 'recurring';
@@ -171,7 +171,7 @@ export async function saveInvestmentExpense(uuid: string, payload: InvestmentExp
   return parseResponse<InvestmentExpense>(response);
 }
 
-export async function updateInvestmentExpense(uuid: string, expenseId: number, payload: InvestmentExpenseInput): Promise<InvestmentExpense> {
+export async function updateInvestmentExpense(uuid: string, expenseId: string, payload: InvestmentExpenseInput): Promise<InvestmentExpense> {
   const response = await fetch(`${apiBase}/investments/${uuid}/expenses/${expenseId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -180,7 +180,7 @@ export async function updateInvestmentExpense(uuid: string, expenseId: number, p
   return parseResponse<InvestmentExpense>(response);
 }
 
-export async function deleteInvestmentExpense(uuid: string, expenseId: number): Promise<void> {
+export async function deleteInvestmentExpense(uuid: string, expenseId: string): Promise<void> {
   const response = await fetch(`${apiBase}/investments/${uuid}/expenses/${expenseId}`, {
     method: 'DELETE',
   });
@@ -229,7 +229,7 @@ export async function saveInvestmentSaleAssumption(uuid: string, payload: Invest
   return parseResponse<InvestmentSaleAssumption>(response);
 }
 
-export async function updateInvestmentSaleAssumption(uuid: string, assumptionId: number, payload: InvestmentSaleAssumptionInput): Promise<InvestmentSaleAssumption> {
+export async function updateInvestmentSaleAssumption(uuid: string, assumptionId: string, payload: InvestmentSaleAssumptionInput): Promise<InvestmentSaleAssumption> {
   const response = await fetch(`${apiBase}/investments/${uuid}/sale-assumptions/${assumptionId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -238,7 +238,7 @@ export async function updateInvestmentSaleAssumption(uuid: string, assumptionId:
   return parseResponse<InvestmentSaleAssumption>(response);
 }
 
-export async function deleteInvestmentSaleAssumption(uuid: string, assumptionId: number): Promise<void> {
+export async function deleteInvestmentSaleAssumption(uuid: string, assumptionId: string): Promise<void> {
   const response = await fetch(`${apiBase}/investments/${uuid}/sale-assumptions/${assumptionId}`, {
     method: 'DELETE',
   });

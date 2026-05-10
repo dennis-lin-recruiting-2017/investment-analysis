@@ -3,6 +3,7 @@ package securities
 import (
 	"context"
 	"encoding/json"
+	"investment-analysis/util"
 	"strings"
 	"testing"
 )
@@ -121,7 +122,7 @@ func TestSaveBondQuote_AlreadyExists(t *testing.T) {
 	s := &alwaysExistsStore{mockStore: newMockStore()}
 	c := newTestClient(s, &mockTransport{})
 
-	if err := c.SaveBondQuote(context.Background(), "38259P508", ""); err != nil {
+	if err := c.SaveBondQuote(util.NewTraceContext(), "38259P508", ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	last, _ := s.lastAttempt()
@@ -136,7 +137,7 @@ func TestSaveBondQuote_Success(t *testing.T) {
 	mt.add("getTradeActivity", 200, mockFINRAResponse)
 
 	c := newTestClient(store, mt)
-	if err := c.SaveBondQuote(context.Background(), "38259p508", "out"); err != nil {
+	if err := c.SaveBondQuote(util.NewTraceContext(), "38259p508", "out"); err != nil {
 		t.Fatalf("SaveBondQuote error: %v", err)
 	}
 
@@ -178,7 +179,7 @@ func TestSaveBondQuote_NoTrades(t *testing.T) {
 	mt.add("getTradeActivity", 200, `{"data":[]}`)
 
 	c := newTestClient(store, mt)
-	err := c.SaveBondQuote(context.Background(), "BADCUSIP0", "")
+	err := c.SaveBondQuote(util.NewTraceContext(), "BADCUSIP0", "")
 	if err == nil {
 		t.Fatal("expected error for empty trade data, got nil")
 	}
@@ -193,7 +194,7 @@ func TestSaveBondQuote_HTTPError(t *testing.T) {
 	mt.add("getTradeActivity", 500, "internal server error")
 
 	c := newTestClient(store, mt)
-	err := c.SaveBondQuote(context.Background(), "38259P508", "")
+	err := c.SaveBondQuote(util.NewTraceContext(), "38259P508", "")
 	if err == nil {
 		t.Fatal("expected error on 500 response, got nil")
 	}
@@ -207,6 +208,6 @@ func TestSaveBondQuote_HTTPError(t *testing.T) {
 // alwaysExistsStore wraps a mockStore but always reports documents as existing.
 type alwaysExistsStore struct{ *mockStore }
 
-func (s *alwaysExistsStore) DocumentExists(_ context.Context, _ string) (bool, error) {
+func (s *alwaysExistsStore) Exists(_ context.Context, _ string) (bool, error) {
 	return true, nil
 }

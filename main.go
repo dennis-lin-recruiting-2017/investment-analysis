@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 
 	apphttp "investment-analysis/http"
@@ -53,15 +55,20 @@ func main() {
 	}
 
 	var (
-		db  persistence.Store
+		db  *persistence.Store
 		err error
 	)
 
 	switch *storeBackend {
 	case "postgres":
-		db, err = postgres.Open()
+		db, err = postgres.NewStore(os.Getenv("DATABASE_URL"))
 	case "sqlite":
-		db, err = sqlite.Open()
+		exePath, exeErr := os.Executable()
+		if exeErr != nil {
+			log.Fatalf("locate executable: %v", exeErr)
+		}
+		dbPath := filepath.Join(filepath.Dir(exePath), "app-template.db")
+		db, err = sqlite.NewStore(dbPath)
 	default:
 		log.Fatalf("unsupported store backend %q", *storeBackend)
 	}

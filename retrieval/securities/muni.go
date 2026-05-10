@@ -33,6 +33,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"investment-analysis/util"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -95,17 +96,21 @@ const emmaBase = "https://emma.msrb.org"
 //
 // Calling this more than once on the same calendar day (UTC) returns
 // "skipped_exists" without hitting the network again.
-func (c *Client) SaveMuniBondQuote(ctx context.Context, cusip, emmaSession, out string) error {
+func (c *Client) SaveMuniBondQuote(ctx context.Context, cusip, emmaSession, out string) (err error) {
+	defer func() {
+		util.LogIfErr(ctx, &err, "securities.Client.SaveMuniBondQuote",
+			"cusip", cusip, "sessionSet", emmaSession != "", "out", out)
+	}()
 	cusip = strings.ToUpper(strings.TrimSpace(cusip))
 	today := time.Now().UTC().Format("2006-01-02")
 	key := fmt.Sprintf("muni-bond-quote|%s|%s", cusip, today)
 
-	exists, err := c.store.DocumentExists(ctx, key)
+	exists, err := c.docs.Exists(ctx, key)
 	if err != nil {
 		return err
 	}
 	if exists {
-		return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		return c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.MuniBondQuote, Ticker: cusip,
 			Status: "skipped_exists", Message: "muni bond quote already stored for " + today,
 		})
@@ -113,7 +118,7 @@ func (c *Client) SaveMuniBondQuote(ctx context.Context, cusip, emmaSession, out 
 
 	quote, sourceURL, err := c.fetchEMMABondQuote(ctx, cusip, emmaSession)
 	if err != nil {
-		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		_ = c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.MuniBondQuote, Ticker: cusip,
 			Status: "error", Message: err.Error(),
 		})
@@ -125,16 +130,16 @@ func (c *Client) SaveMuniBondQuote(ctx context.Context, cusip, emmaSession, out 
 		return err
 	}
 
-	doc := model.StoredDocument{
-		Key:         key,
-		DocumentType:  model.MuniBondQuote,
-		Ticker:      cusip,
-		SourceURL:   sourceURL,
-		OutputLabel: out,
-		MimeType:    "application/json",
-		Body:        body,
+	doc := model.Document{
+		DocKey:       key,
+		DocumentType: model.MuniBondQuote,
+		Ticker:       cusip,
+		SourceURL:    sourceURL,
+		OutputLabel:  out,
+		MimeType:     "application/json",
+		Body:         body,
 	}
-	if err := c.store.InsertDocument(ctx, doc); err != nil {
+	if err := c.docs.Insert(ctx, &doc); err != nil {
 		return err
 	}
 
@@ -142,7 +147,7 @@ func (c *Client) SaveMuniBondQuote(ctx context.Context, cusip, emmaSession, out 
 	if quote.Note != "" {
 		msg += " (reference data only — " + quote.Note + ")"
 	}
-	return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+	return c.attempts.Log(ctx, model.RetrievalAttempt{
 		DocKey: key, DocumentType: model.MuniBondQuote, Ticker: cusip,
 		Status: "stored", Message: msg,
 	})
@@ -153,7 +158,11 @@ func (c *Client) SaveMuniBondQuote(ctx context.Context, cusip, emmaSession, out 
 //
 // It always calls the public SearchAhead endpoint for reference data, then
 // attempts the authenticated trade endpoint if emmaSession is non-empty.
-func (c *Client) fetchEMMABondQuote(ctx context.Context, cusip, emmaSession string) (MuniBondQuote, string, error) {
+func (c *Client) fetchEMMABondQuote(ctx context.Context, cusip, emmaSession string) (_ MuniBondQuote, _ string, err error) {
+	defer func() {
+		util.LogIfErr(ctx, &err, "securities.Client.fetchEMMABondQuote",
+			"cusip", cusip, "sessionSet", emmaSession != "")
+	}()
 	ec := c.newEMMAClient(emmaSession)
 
 	quote := MuniBondQuote{
@@ -214,7 +223,8 @@ func (c *Client) newEMMAClient(sessionID string) *emmaHTTPClient {
 	}
 }
 
-func (ec *emmaHTTPClient) post(ctx context.Context, endpoint string, reqBody any) ([]byte, error) {
+func (ec *emmaHTTPClient) post(ctx context.Context, endpoint string, reqBody any) (_ []byte, err error) {
+	defer func() { util.LogIfErr(ctx, &err, "securities.emmaHTTPClient.post", "endpoint", endpoint) }()
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, err
@@ -257,7 +267,10 @@ func (ec *emmaHTTPClient) post(ctx context.Context, endpoint string, reqBody any
 //
 // The endpoint accepts a free-text query; sending the CUSIP directly yields
 // an exact match in the first result when the CUSIP is known to EMMA.
-func (ec *emmaHTTPClient) fetchSearchAhead(ctx context.Context, endpoint, cusip string, quote *MuniBondQuote) error {
+func (ec *emmaHTTPClient) fetchSearchAhead(ctx context.Context, endpoint, cusip string, quote *MuniBondQuote) (err error) {
+	defer func() {
+		util.LogIfErr(ctx, &err, "securities.emmaHTTPClient.fetchSearchAhead", "endpoint", endpoint, "cusip", cusip)
+	}()
 	raw, err := ec.post(ctx, endpoint, map[string]string{"searchText": cusip})
 	if err != nil {
 		return err
@@ -312,7 +325,10 @@ func (ec *emmaHTTPClient) fetchSearchAhead(ctx context.Context, endpoint, cusip 
 
 // fetchRecentTrades calls the EMMA trade endpoint and populates the trade
 // fields of quote.  Requires a valid MSRB session cookie in the client jar.
-func (ec *emmaHTTPClient) fetchRecentTrades(ctx context.Context, endpoint, cusip string, quote *MuniBondQuote) error {
+func (ec *emmaHTTPClient) fetchRecentTrades(ctx context.Context, endpoint, cusip string, quote *MuniBondQuote) (err error) {
+	defer func() {
+		util.LogIfErr(ctx, &err, "securities.emmaHTTPClient.fetchRecentTrades", "endpoint", endpoint, "cusip", cusip)
+	}()
 	raw, err := ec.post(ctx, endpoint, map[string]string{"cusip": cusip})
 	if err != nil {
 		return err

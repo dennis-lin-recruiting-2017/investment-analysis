@@ -1,8 +1,8 @@
 package securities
 
 import (
-	"context"
 	"encoding/json"
+	"investment-analysis/util"
 	"io"
 	"net/http"
 	"strings"
@@ -207,7 +207,7 @@ func TestSaveTreasuryYields_AlreadyExists(t *testing.T) {
 	mt.add("daily_treasury_yield_curve", 200, makeTreasuryXMLResponse("2026-05-01"))
 
 	c := newTestClient(s, mt)
-	if err := c.SaveTreasuryYields(context.Background(), ""); err != nil {
+	if err := c.SaveTreasuryYields(util.NewTraceContext(), ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	last, _ := s.lastAttempt()
@@ -222,7 +222,7 @@ func TestSaveTreasuryYields_Success(t *testing.T) {
 	mt.add("daily_treasury_yield_curve", 200, makeTreasuryXMLResponse("2026-05-01"))
 
 	c := newTestClient(store, mt)
-	if err := c.SaveTreasuryYields(context.Background(), "out"); err != nil {
+	if err := c.SaveTreasuryYields(util.NewTraceContext(), "out"); err != nil {
 		t.Fatalf("SaveTreasuryYields error: %v", err)
 	}
 
@@ -276,7 +276,7 @@ func TestSaveTreasuryYields_FallbackToPreviousMonth(t *testing.T) {
 	}}
 
 	c := newTestClient(store, customMT)
-	if err := c.SaveTreasuryYields(context.Background(), ""); err != nil {
+	if err := c.SaveTreasuryYields(util.NewTraceContext(), ""); err != nil {
 		t.Fatalf("SaveTreasuryYields fallback error: %v", err)
 	}
 
@@ -305,7 +305,7 @@ func TestSaveTreasuryYields_NoData(t *testing.T) {
 	mt.add("daily_treasury_yield_curve", 200, string(makeTreasuryXML()))
 
 	c := newTestClient(store, mt)
-	err := c.SaveTreasuryYields(context.Background(), "")
+	err := c.SaveTreasuryYields(util.NewTraceContext(), "")
 	if err == nil {
 		t.Fatal("expected error when both months have no data, got nil")
 	}
@@ -325,7 +325,7 @@ func TestSaveTreasuryYields_PicksMostRecentEntry(t *testing.T) {
 	mt.add("daily_treasury_yield_curve", 200, string(xml))
 
 	c := newTestClient(store, mt)
-	if err := c.SaveTreasuryYields(context.Background(), ""); err != nil {
+	if err := c.SaveTreasuryYields(util.NewTraceContext(), ""); err != nil {
 		t.Fatalf("SaveTreasuryYields error: %v", err)
 	}
 

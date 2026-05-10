@@ -1,8 +1,8 @@
 package securities
 
 import (
-	"context"
 	"encoding/json"
+	"investment-analysis/util"
 	"strings"
 	"testing"
 )
@@ -80,7 +80,7 @@ func TestSaveMuniBondQuote_AlreadyExists(t *testing.T) {
 	store2 := &alwaysExistsStore{mockStore: newMockStore()}
 	c := newTestClient(store2, &mockTransport{})
 
-	if err := c.SaveMuniBondQuote(context.Background(), "64971WAN0", "", ""); err != nil {
+	if err := c.SaveMuniBondQuote(util.NewTraceContext(), "64971WAN0", "", ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	last, _ := store2.lastAttempt()
@@ -95,7 +95,7 @@ func TestSaveMuniBondQuote_NoSession_ReferenceDataOnly(t *testing.T) {
 	mt.add("QuickSearch/SearchAhead", 200, mockEMMASearchResponse)
 
 	c := newTestClient(store, mt)
-	if err := c.SaveMuniBondQuote(context.Background(), "64971WAN0", "", "out"); err != nil {
+	if err := c.SaveMuniBondQuote(util.NewTraceContext(), "64971WAN0", "", "out"); err != nil {
 		t.Fatalf("SaveMuniBondQuote error: %v", err)
 	}
 
@@ -143,7 +143,7 @@ func TestSaveMuniBondQuote_WithSession_FullData(t *testing.T) {
 	mt.add("JsonGetRecentTrades", 200, mockEMMATradeResponse)
 
 	c := newTestClient(store, mt)
-	if err := c.SaveMuniBondQuote(context.Background(), "64971WAN0", "fake-session-id", ""); err != nil {
+	if err := c.SaveMuniBondQuote(util.NewTraceContext(), "64971WAN0", "fake-session-id", ""); err != nil {
 		t.Fatalf("SaveMuniBondQuote error: %v", err)
 	}
 
@@ -182,7 +182,7 @@ func TestSaveMuniBondQuote_WithSession_TradesFail_StillStoresRefData(t *testing.
 	mt.add("JsonGetRecentTrades", 403, "Forbidden")
 
 	c := newTestClient(store, mt)
-	if err := c.SaveMuniBondQuote(context.Background(), "64971WAN0", "expired-session", ""); err != nil {
+	if err := c.SaveMuniBondQuote(util.NewTraceContext(), "64971WAN0", "expired-session", ""); err != nil {
 		t.Fatalf("SaveMuniBondQuote should not fail when trade fetch fails: %v", err)
 	}
 
@@ -215,7 +215,7 @@ func TestSaveMuniBondQuote_CUSIPNotFound(t *testing.T) {
 	mt.add("QuickSearch/SearchAhead", 200, `[]`) // empty results
 
 	c := newTestClient(store, mt)
-	err := c.SaveMuniBondQuote(context.Background(), "000000000", "", "")
+	err := c.SaveMuniBondQuote(util.NewTraceContext(), "000000000", "", "")
 	if err == nil {
 		t.Fatal("expected error for CUSIP not found in EMMA, got nil")
 	}

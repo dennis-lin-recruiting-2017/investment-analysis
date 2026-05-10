@@ -1,8 +1,8 @@
 package llm
 
 import (
-	"context"
 	"encoding/json"
+	"investment-analysis/util"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,6 +33,7 @@ func serveChatResponse(t *testing.T, reply string) *httptest.Server {
 			}{
 				{Message: Message{Role: "assistant", Content: reply}},
 			},
+			Usage: &usage{PromptTokens: 11, CompletionTokens: 7, TotalTokens: 18},
 		})
 	}))
 	t.Cleanup(srv.Close)
@@ -44,13 +45,23 @@ func TestInfer_Success(t *testing.T) {
 	srv := serveChatResponse(t, "The answer is 42.")
 	client := NewClient(newTestSettings(srv.URL))
 
-	got, err := client.Infer(context.Background(), "What is the answer?")
+	got, err := client.Infer(util.NewTraceContext(), "What is the answer?")
 	if err != nil {
 		t.Fatalf("Infer: %v", err)
 	}
-	print(got)
-	if got != "The answer is 42." {
-		t.Errorf("got %q; want %q", got, "The answer is 42.")
+	if got.Content != "The answer is 42." {
+		t.Errorf("Content = %q; want %q", got.Content, "The answer is 42.")
+	}
+	if got.PromptTokens != 11 || got.CompletionTokens != 7 || got.TotalTokens != 18 {
+		t.Errorf("token usage = (%d, %d, %d); want (11, 7, 18)",
+			got.PromptTokens, got.CompletionTokens, got.TotalTokens)
+	}
+	if got.RequestedAt.IsZero() || got.RespondedAt.IsZero() {
+		t.Errorf("timestamps not populated: requested=%v responded=%v",
+			got.RequestedAt, got.RespondedAt)
+	}
+	if got.Elapsed <= 0 || got.Elapsed != got.RespondedAt.Sub(got.RequestedAt) {
+		t.Errorf("Elapsed = %v; want positive and equal to RespondedAt-RequestedAt", got.Elapsed)
 	}
 }
 
@@ -70,7 +81,7 @@ func TestInfer_SystemPromptIncluded(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client := NewClient(newTestSettings(srv.URL))
-	if _, err := client.Infer(context.Background(), "hello"); err != nil {
+	if _, err := client.Infer(util.NewTraceContext(), "hello"); err != nil {
 		t.Fatalf("Infer: %v", err)
 	}
 
@@ -106,7 +117,7 @@ func TestInfer_NoSystemPrompt(t *testing.T) {
 	settings.SystemPrompt = ""
 	client := NewClient(settings)
 
-	if _, err := client.Infer(context.Background(), "hi"); err != nil {
+	if _, err := client.Infer(util.NewTraceContext(), "hi"); err != nil {
 		t.Fatalf("Infer: %v", err)
 	}
 	if len(captured.Messages) != 1 {
@@ -138,7 +149,7 @@ func TestChat_MultiTurn(t *testing.T) {
 		{Role: "user", Content: "second"},
 	}
 	client := NewClient(newTestSettings(srv.URL))
-	if _, err := client.Chat(context.Background(), messages); err != nil {
+	if _, err := client.Chat(util.NewTraceContext(), messages); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 	if len(captured.Messages) != 4 {
@@ -165,7 +176,7 @@ func TestInfer_APIKeyForwarded(t *testing.T) {
 	settings.APIKey = "sk-test-key"
 	client := NewClient(settings)
 
-	if _, err := client.Infer(context.Background(), "ping"); err != nil {
+	if _, err := client.Infer(util.NewTraceContext(), "ping"); err != nil {
 		t.Fatalf("Infer: %v", err)
 	}
 	if gotAuth != "Bearer sk-test-key" {
@@ -182,7 +193,7 @@ func TestInfer_ServerError(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client := NewClient(newTestSettings(srv.URL))
-	_, err := client.Infer(context.Background(), "hello")
+	_, err := client.Infer(util.NewTraceContext(), "hello")
 	if err == nil {
 		t.Fatal("expected error for 503 response, got nil")
 	}
@@ -200,7 +211,7 @@ func TestInfer_EmptyChoices(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client := NewClient(newTestSettings(srv.URL))
-	_, err := client.Infer(context.Background(), "hello")
+	_, err := client.Infer(util.NewTraceContext(), "hello")
 	if err == nil {
 		t.Fatal("expected error for empty choices, got nil")
 	}

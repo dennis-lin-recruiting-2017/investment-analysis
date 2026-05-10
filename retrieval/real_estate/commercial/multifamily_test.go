@@ -1,23 +1,23 @@
 package commercial
 
 import (
-	"context"
 	"fmt"
 	"investment-analysis/llm"
-	"investment-analysis/persistence"
 	"investment-analysis/persistence/model"
+	"investment-analysis/persistence/sqlite"
 	"investment-analysis/retrieval"
+	"investment-analysis/util"
 	"testing"
 )
 
 func TestGetMultifamily01(t *testing.T) {
-	store, err := persistence.OpenFile("./my-docs.db")
+	store, err := sqlite.NewStore("./my-docs.db")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 
-	client, err := retrieval.NewPlaywrightClient("", store, 300)
+	client, err := retrieval.NewPlaywrightClient("", store.Documents, store.RetrievalAttempts, 300)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,12 +27,12 @@ func TestGetMultifamily01(t *testing.T) {
 	url := "https://www.loopnet.com/Listing/525-Hamilton-Ave-Palo-Alto-CA/40362864/"
 	output_label := "listing -- commercial real estate"
 
-	err = client.SaveDocument(context.Background(), url, key, model.ListingCommercial, output_label)
+	err = client.SaveDocument(util.NewTraceContext(), url, key, model.ListingCommercial, output_label)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	document, err := store.GetDocumentBody(context.Background(), key)
+	document, err := store.Documents.GetBody(util.NewTraceContext(), key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +57,8 @@ func TestGetMultifamily01(t *testing.T) {
 	print(document)
 	print(question)
 
+	existingRecord, err := store.Inferences.Get(util.NewTraceContext(), "test-inference-123")
+
 	llmClient := llm.NewClient(model.DefaultSettings(""))
 	messages := make([]llm.Message, 1)
 	messages[0] = llm.Message{
@@ -64,9 +66,11 @@ func TestGetMultifamily01(t *testing.T) {
 		Content: fmt.Sprintf("%s\n\n%s", document, question),
 		//Content: "Fried chicken recipe",
 	}
-	response, err := llmClient.Chat(context.Background(), messages)
+	response, err := llmClient.Chat(util.NewTraceContext(), messages)
 	if err != nil {
 		t.Fatal(err)
 	}
-	print(response)
+	print(response.Content)
+	t.Logf("usage: prompt=%d completion=%d total=%d, elapsed=%s",
+		response.PromptTokens, response.CompletionTokens, response.TotalTokens, response.Elapsed)
 }

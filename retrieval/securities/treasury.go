@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"investment-analysis/util"
 	"strconv"
 	"strings"
 	"time"
@@ -66,10 +67,11 @@ const treasuryYieldBase = "https://home.treasury.gov/resource-center/data-chart-
 //
 // Calling this more than once for the same trading day returns "skipped_exists"
 // without hitting the network again.
-func (c *Client) SaveTreasuryYields(ctx context.Context, out string) error {
+func (c *Client) SaveTreasuryYields(ctx context.Context, out string) (err error) {
+	defer func() { util.LogIfErr(ctx, &err, "securities.Client.SaveTreasuryYields", "out", out) }()
 	curve, sourceURL, err := c.fetchLatestTreasuryYields(ctx)
 	if err != nil {
-		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		_ = c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: "treasury-yields|unknown", DocumentType: model.TreasuryYields,
 			Ticker: "TREASURY-YIELDS",
 			Status: "error", Message: err.Error(),
@@ -79,12 +81,12 @@ func (c *Client) SaveTreasuryYields(ctx context.Context, out string) error {
 
 	key := fmt.Sprintf("treasury-yields|%s", curve.Date)
 
-	exists, err := c.store.DocumentExists(ctx, key)
+	exists, err := c.docs.Exists(ctx, key)
 	if err != nil {
 		return err
 	}
 	if exists {
-		return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		return c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.TreasuryYields, Ticker: "TREASURY-YIELDS",
 			Status:  "skipped_exists",
 			Message: "Treasury yield curve already stored for " + curve.Date,
@@ -96,19 +98,19 @@ func (c *Client) SaveTreasuryYields(ctx context.Context, out string) error {
 		return err
 	}
 
-	doc := model.StoredDocument{
-		Key:         key,
-		DocumentType:  model.TreasuryYields,
-		Ticker:      "TREASURY-YIELDS",
-		SourceURL:   sourceURL,
-		OutputLabel: out,
-		MimeType:    "application/json",
-		Body:        body,
+	doc := model.Document{
+		DocKey:       key,
+		DocumentType: model.TreasuryYields,
+		Ticker:       "TREASURY-YIELDS",
+		SourceURL:    sourceURL,
+		OutputLabel:  out,
+		MimeType:     "application/json",
+		Body:         body,
 	}
-	if err := c.store.InsertDocument(ctx, doc); err != nil {
+	if err := c.docs.Insert(ctx, &doc); err != nil {
 		return err
 	}
-	return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+	return c.attempts.Log(ctx, model.RetrievalAttempt{
 		DocKey: key, DocumentType: model.TreasuryYields, Ticker: "TREASURY-YIELDS",
 		Status:  "stored",
 		Message: fmt.Sprintf("Treasury yield curve stored for %s", curve.Date),
@@ -118,7 +120,8 @@ func (c *Client) SaveTreasuryYields(ctx context.Context, out string) error {
 // fetchLatestTreasuryYields queries the Treasury XML feed for the current
 // month (and the previous month as a fallback) and returns the most recent
 // trading-day entry together with the source URL.
-func (c *Client) fetchLatestTreasuryYields(ctx context.Context) (TreasuryYieldCurve, string, error) {
+func (c *Client) fetchLatestTreasuryYields(ctx context.Context) (_ TreasuryYieldCurve, _ string, err error) {
+	defer func() { util.LogIfErr(ctx, &err, "securities.Client.fetchLatestTreasuryYields") }()
 	now := time.Now().UTC()
 
 	// Try the current month first; if it has no entries yet (e.g. the first
@@ -180,7 +183,8 @@ func (c *Client) fetchLatestTreasuryYields(ctx context.Context) (TreasuryYieldCu
 // Rather than carrying verbose namespace URIs in every struct tag, this
 // function uses a streaming token decoder and matches only on the local
 // element name, which is unambiguous within the feed's well-known schema.
-func parseTreasuryXML(data []byte) ([]TreasuryYieldCurve, error) {
+func parseTreasuryXML(data []byte) (_ []TreasuryYieldCurve, err error) {
+	defer func() { util.LogIfErr(nil, &err, "securities.parseTreasuryXML", "dataLen", len(data)) }()
 	dec := xml.NewDecoder(bytes.NewReader(data))
 
 	var curves []TreasuryYieldCurve

@@ -7,13 +7,15 @@ import (
 	"net/http"
 	"strings"
 
-	"investment-analysis/persistence"
 	"investment-analysis/persistence/model"
+	"investment-analysis/retrieval"
 )
 
 // ── mock store ────────────────────────────────────────────────────────────────
 
-// mockStore satisfies persistence.RetrievalStore using in-memory maps.
+// mockStore satisfies both retrieval.DocumentsStore and
+// retrieval.AttemptsStore using in-memory maps; the same instance can
+// be passed for both arguments to NewClient.
 type mockStore struct {
 	docs     map[string][]byte
 	attempts []model.RetrievalAttempt
@@ -29,7 +31,7 @@ func newMockStore() *mockStore {
 	return &mockStore{docs: make(map[string][]byte)}
 }
 
-func (s *mockStore) DocumentExists(_ context.Context, key string) (bool, error) {
+func (s *mockStore) Exists(_ context.Context, key string) (bool, error) {
 	if s.existsErr != nil {
 		return false, s.existsErr
 	}
@@ -37,20 +39,20 @@ func (s *mockStore) DocumentExists(_ context.Context, key string) (bool, error) 
 	return ok, nil
 }
 
-func (s *mockStore) InsertDocument(_ context.Context, doc model.StoredDocument) error {
+func (s *mockStore) Insert(_ context.Context, doc *model.Document) error {
 	if s.insertErr != nil {
 		return s.insertErr
 	}
-	s.docs[doc.Key] = doc.Body
+	s.docs[doc.DocKey] = doc.Body
 	return nil
 }
 
-func (s *mockStore) LogRetrievalAttempt(_ context.Context, a model.RetrievalAttempt) error {
+func (s *mockStore) Log(_ context.Context, a model.RetrievalAttempt) error {
 	s.attempts = append(s.attempts, a)
 	return s.logErr
 }
 
-func (s *mockStore) GetDocumentBody(_ context.Context, key string) ([]byte, error) {
+func (s *mockStore) GetBody(_ context.Context, key string) ([]byte, error) {
 	if s.getBodyErr != nil {
 		return nil, s.getBodyErr
 	}
@@ -106,14 +108,21 @@ func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // ── client factory ────────────────────────────────────────────────────────────
 
+// combinedStore is satisfied by anything that implements both halves of
+// the retrieval contract.  *mockStore and *alwaysExistsStore qualify.
+type combinedStore interface {
+	retrieval.DocumentsStore
+	retrieval.AttemptsStore
+}
+
 // newTestClient wires a Client to use t for all outbound HTTP and s for
-// storage.  Both fields are set so that even EMMA's internal http.Client
-// (which reads c.transport) is intercepted.
-// s and t accept any implementation of their respective interfaces so that
-// test-local wrappers (e.g. alwaysExistsStore, funcTransport) can be passed
-// without a concrete-type cast.
-func newTestClient(s persistence.RetrievalStore, t http.RoundTripper) *Client {
-	c := NewClient("test-agent/1.0", s)
+// storage (used as both the documents and attempts store).  Both fields
+// are set so that even EMMA's internal http.Client (which reads
+// c.transport) is intercepted.  s accepts any implementation of the
+// combined interface so test-local wrappers (e.g. alwaysExistsStore,
+// funcTransport) can be passed without a concrete-type cast.
+func newTestClient(s combinedStore, t http.RoundTripper) *Client {
+	c := NewClient("test-agent/1.0", s, s)
 	c.httpClient = &http.Client{Transport: t}
 	c.transport = t
 	return c

@@ -10,37 +10,42 @@ package retrieval
 import (
 	"context"
 	"fmt"
+	"investment-analysis/util"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
-	"investment-analysis/persistence"
 	"investment-analysis/persistence/model"
 )
 
 const DefaultUserAgent = "go-download-web-archive/1.0 (contact: you@example.com)"
 
-// Client downloads documents and stores them via a RetrievalStore.
-// Use NewClient for plain HTTP fetching or NewPlaywrightClient to drive a real
-// Firefox browser (required for JS-heavy or bot-protected pages).
+// Client downloads documents and stores them via the documents and
+// retrieval-attempts tables.  Use NewClient for plain HTTP fetching or
+// NewPlaywrightClient to drive a real Firefox browser (required for
+// JS-heavy or bot-protected pages).  The two store arguments accept any
+// implementation of DocumentsStore / AttemptsStore — typically a
+// *model.Store's Documents and RetrievalAttempts fields.
 type Client struct {
 	userAgent  string
 	httpClient *http.Client
-	store      persistence.RetrievalStore
+	docs       DocumentsStore
+	attempts   AttemptsStore
 	pw         *playwrightFetcher // nil → use httpClient
 }
 
 // NewClient returns a Client that fetches pages with a plain HTTP request.
 // If userAgent is blank the package DefaultUserAgent is used.
-func NewClient(userAgent string, store persistence.RetrievalStore) *Client {
+func NewClient(userAgent string, docs DocumentsStore, attempts AttemptsStore) *Client {
 	if strings.TrimSpace(userAgent) == "" {
 		userAgent = DefaultUserAgent
 	}
 	return &Client{
 		userAgent:  userAgent,
 		httpClient: &http.Client{Timeout: 60 * time.Second},
-		store:      store,
+		docs:       docs,
+		attempts:   attempts,
 	}
 }
 
@@ -49,30 +54,35 @@ func NewClient(userAgent string, store persistence.RetrievalStore) *Client {
 // execution or bot-detection bypass (e.g. Akamai-protected pages).
 //
 // timeoutSeconds is the maximum total time allowed for a single page fetch
-// (navigation + DOM stability wait combined).  Pass the value from
-// persistence.RetrievalSettings.PlaywrightTimeoutSeconds, or use
-// persistence/model.DefaultRetrievalSettings().PlaywrightTimeoutSeconds for
-// the default of 300 s.
+// (navigation + DOM stability wait combined).  Pass the value from the
+// retrieval_settings table (store.RetrievalSettings.Get) or use
+// model.DefaultRetrievalSettings().PlaywrightTimeoutSeconds
+// for the default of 300 s.
 //
 // The caller must call Close() when done to shut down the browser process.
-func NewPlaywrightClient(userAgent string, store persistence.RetrievalStore, timeoutSeconds int) (*Client, error) {
+func NewPlaywrightClient(userAgent string, docs DocumentsStore, attempts AttemptsStore, timeoutSeconds int) (c *Client, err error) {
+	defer func() {
+		util.LogIfErr(nil, &err, "retrieval.NewPlaywrightClient", "userAgent", userAgent, "timeoutSeconds", timeoutSeconds)
+	}()
 	if strings.TrimSpace(userAgent) == "" {
 		userAgent = DefaultUserAgent
 	}
-	pw, err := newPlaywrightFetcher(timeoutSeconds)
-	if err != nil {
-		return nil, err
+	pw, e := newPlaywrightFetcher(timeoutSeconds)
+	if e != nil {
+		return nil, e
 	}
 	return &Client{
 		userAgent: userAgent,
-		store:     store,
+		docs:      docs,
+		attempts:  attempts,
 		pw:        pw,
 	}, nil
 }
 
 // Close releases resources held by the client.  It must be called when using
 // NewPlaywrightClient; it is safe but a no-op for plain HTTP clients.
-func (c *Client) Close() error {
+func (c *Client) Close() (err error) {
+	defer func() { util.LogIfErr(nil, &err, "retrieval.Client.Close") }()
 	if c.pw != nil {
 		return c.pw.close()
 	}
@@ -88,13 +98,17 @@ func (c *Client) Close() error {
 // mode is a short identifier for the kind of document (e.g. "press-release",
 // "annual-report"); it is stored alongside the document for later retrieval.
 // outputLabel is an optional human-readable label.
-func (c *Client) SaveDocument(ctx context.Context, url, key string, documentType model.DocumentType, outputLabel string) error {
-	exists, err := c.store.DocumentExists(ctx, key)
+func (c *Client) SaveDocument(ctx context.Context, url, key string, documentType model.DocumentType, outputLabel string) (err error) {
+	defer func() {
+		util.LogIfErr(ctx, &err, "retrieval.Client.SaveDocument",
+			"url", url, "key", key, "documentType", documentType, "outputLabel", outputLabel)
+	}()
+	exists, err := c.docs.Exists(ctx, key)
 	if err != nil {
 		return err
 	}
 	if exists {
-		return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		return c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey:       key,
 			DocumentType: documentType,
 			Status:       "skipped_exists",
@@ -104,7 +118,7 @@ func (c *Client) SaveDocument(ctx context.Context, url, key string, documentType
 
 	body, mimeType, err := c.fetch(ctx, url)
 	if err != nil {
-		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		_ = c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey:       key,
 			DocumentType: documentType,
 			Status:       "error",
@@ -113,18 +127,18 @@ func (c *Client) SaveDocument(ctx context.Context, url, key string, documentType
 		return err
 	}
 
-	doc := model.StoredDocument{
-		Key:          key,
+	doc := model.Document{
+		DocKey:       key,
 		DocumentType: documentType,
 		SourceURL:    url,
 		OutputLabel:  outputLabel,
 		MimeType:     mimeType,
 		Body:         body,
 	}
-	if err := c.store.InsertDocument(ctx, doc); err != nil {
+	if err := c.docs.Insert(ctx, &doc); err != nil {
 		return err
 	}
-	return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+	return c.attempts.Log(ctx, model.RetrievalAttempt{
 		DocKey:       key,
 		DocumentType: documentType,
 		Status:       "stored",
@@ -136,6 +150,7 @@ func (c *Client) SaveDocument(ctx context.Context, url, key string, documentType
 // When the client was created with NewPlaywrightClient it drives a real
 // Firefox browser; otherwise it issues a plain HTTP GET.
 func (c *Client) fetch(ctx context.Context, url string) (body []byte, mimeType string, err error) {
+	defer func() { util.LogIfErr(ctx, &err, "retrieval.Client.fetch", "url", url) }()
 	if c.pw != nil {
 		return c.pw.fetch(ctx, url)
 	}
@@ -144,6 +159,7 @@ func (c *Client) fetch(ctx context.Context, url string) (body []byte, mimeType s
 
 // httpFetch performs a single GET request and returns the body and Content-Type.
 func (c *Client) httpFetch(ctx context.Context, url string) (body []byte, mimeType string, err error) {
+	defer func() { util.LogIfErr(ctx, &err, "retrieval.Client.httpFetch", "url", url) }()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, "", err

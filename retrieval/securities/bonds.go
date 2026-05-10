@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"investment-analysis/util"
 	"strings"
 	"time"
 
@@ -57,17 +58,20 @@ const finraTraceBase = "https://mds.finra.org/bd/getTradeActivity"
 // Coverage: corporate bonds, agency bonds, and asset-backed securities that
 // are TRACE-eligible.  Municipal bonds are not covered by FINRA TRACE; use
 // EMMA (emma.msrb.org) for those.
-func (c *Client) SaveBondQuote(ctx context.Context, cusip, out string) error {
+func (c *Client) SaveBondQuote(ctx context.Context, cusip, out string) (err error) {
+	defer func() {
+		util.LogIfErr(ctx, &err, "securities.Client.SaveBondQuote", "cusip", cusip, "out", out)
+	}()
 	cusip = strings.ToUpper(strings.TrimSpace(cusip))
 	today := time.Now().UTC().Format("2006-01-02")
 	key := fmt.Sprintf("bond-quote|%s|%s", cusip, today)
 
-	exists, err := c.store.DocumentExists(ctx, key)
+	exists, err := c.docs.Exists(ctx, key)
 	if err != nil {
 		return err
 	}
 	if exists {
-		return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		return c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.BondQuote, Ticker: cusip,
 			Status: "skipped_exists", Message: "bond quote already stored for " + today,
 		})
@@ -75,7 +79,7 @@ func (c *Client) SaveBondQuote(ctx context.Context, cusip, out string) error {
 
 	quote, sourceURL, err := c.fetchFINRABondQuote(ctx, cusip)
 	if err != nil {
-		_ = c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+		_ = c.attempts.Log(ctx, model.RetrievalAttempt{
 			DocKey: key, DocumentType: model.BondQuote, Ticker: cusip,
 			Status: "error", Message: err.Error(),
 		})
@@ -87,19 +91,19 @@ func (c *Client) SaveBondQuote(ctx context.Context, cusip, out string) error {
 		return err
 	}
 
-	doc := model.StoredDocument{
-		Key:         key,
-		DocumentType:  model.BondQuote,
-		Ticker:      cusip,
-		SourceURL:   sourceURL,
-		OutputLabel: out,
-		MimeType:    "application/json",
-		Body:        body,
+	doc := model.Document{
+		DocKey:       key,
+		DocumentType: model.BondQuote,
+		Ticker:       cusip,
+		SourceURL:    sourceURL,
+		OutputLabel:  out,
+		MimeType:     "application/json",
+		Body:         body,
 	}
-	if err := c.store.InsertDocument(ctx, doc); err != nil {
+	if err := c.docs.Insert(ctx, &doc); err != nil {
 		return err
 	}
-	return c.store.LogRetrievalAttempt(ctx, model.RetrievalAttempt{
+	return c.attempts.Log(ctx, model.RetrievalAttempt{
 		DocKey: key, DocumentType: model.BondQuote, Ticker: cusip,
 		Status:  "stored",
 		Message: fmt.Sprintf("FINRA TRACE quote stored for %s on %s", cusip, today),
@@ -112,7 +116,10 @@ func (c *Client) SaveBondQuote(ctx context.Context, cusip, out string) error {
 // The API returns the most recent TRACE-reported trades for the CUSIP.  The
 // first (most recent) trade is used to populate the top-level summary fields;
 // all trades are retained in RecentTrades.
-func (c *Client) fetchFINRABondQuote(ctx context.Context, cusip string) (BondQuote, string, error) {
+func (c *Client) fetchFINRABondQuote(ctx context.Context, cusip string) (_ BondQuote, _ string, err error) {
+	defer func() {
+		util.LogIfErr(ctx, &err, "securities.Client.fetchFINRABondQuote", "cusip", cusip)
+	}()
 	// type=trd  → trade records (as opposed to reference data).
 	// No date range is supplied so the API returns the most recent trades.
 	sourceURL := fmt.Sprintf("%s?symbol=%s&type=trd", finraTraceBase, cusip)

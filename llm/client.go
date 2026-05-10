@@ -5,7 +5,8 @@
 //
 //	settings, _ := store.GetSettings("lm-studio")
 //	client := llm.NewClient(settings)
-//	reply, err := client.Infer(ctx, "Summarise this document: ...")
+//	resp, err := client.Infer(ctx, "Summarise this document: ...")
+//	fmt.Println(resp.Content, resp.TotalTokens, resp.Elapsed)
 package llm
 
 import (
@@ -13,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"investment-analysis/util"
 	"io"
 	"net/http"
 	"strings"
@@ -36,13 +38,35 @@ type chatRequest struct {
 	Stream      bool      `json:"stream"`
 }
 
+type usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
 type chatResponse struct {
 	Choices []struct {
 		Message Message `json:"message"`
 	} `json:"choices"`
+	Usage *usage `json:"usage,omitempty"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+// --- public response type ---------------------------------------------------
+
+// Response is the result of a Chat or Infer call: the model's reply plus
+// metadata about the call.  Token counts are zero if the server did not
+// return a usage block.
+type Response struct {
+	Content          string        `json:"content"`
+	PromptTokens     int           `json:"prompt_tokens"`
+	CompletionTokens int           `json:"completion_tokens"`
+	TotalTokens      int           `json:"total_tokens"`
+	RequestedAt      time.Time     `json:"requested_at"`
+	RespondedAt      time.Time     `json:"responded_at"`
+	Elapsed          time.Duration `json:"elapsed"`
 }
 
 // --- Client -----------------------------------------------------------------
@@ -65,9 +89,13 @@ func NewClient(settings model.LLMSettings) *Client {
 }
 
 // Infer sends prompt as a user message (preceded by the configured system
-// prompt) and returns the model's reply text.  It is a convenience wrapper
-// around Chat.
-func (c *Client) Infer(ctx context.Context, prompt string) (string, error) {
+// prompt) and returns the model's reply plus call metadata.  It is a
+// convenience wrapper around Chat.
+func (c *Client) Infer(ctx context.Context, prompt string) (_ *Response, err error) {
+	defer func() {
+		util.LogIfErr(ctx, &err, "llm.Client.Infer",
+			"provider", c.settings.Provider, "model", c.settings.Model, "promptLen", len(prompt))
+	}()
 	messages := []Message{}
 	if sp := strings.TrimSpace(c.settings.SystemPrompt); sp != "" {
 		messages = append(messages, Message{Role: "system", Content: sp})
@@ -77,9 +105,13 @@ func (c *Client) Infer(ctx context.Context, prompt string) (string, error) {
 }
 
 // Chat sends an arbitrary sequence of messages and returns the model's reply
-// text.  Use this for multi-turn conversations where you manage the message
-// history yourself.
-func (c *Client) Chat(ctx context.Context, messages []Message) (string, error) {
+// plus call metadata.  Use this for multi-turn conversations where you
+// manage the message history yourself.
+func (c *Client) Chat(ctx context.Context, messages []Message) (_ *Response, err error) {
+	defer func() {
+		util.LogIfErr(ctx, &err, "llm.Client.Chat",
+			"provider", c.settings.Provider, "model", c.settings.Model, "messageCount", len(messages))
+	}()
 	reqBody := chatRequest{
 		Model:       c.settings.Model,
 		Messages:    messages,
@@ -89,43 +121,56 @@ func (c *Client) Chat(ctx context.Context, messages []Message) (string, error) {
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("llm: marshal request: %w", err)
+		return nil, fmt.Errorf("llm: marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.settings.Endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("llm: build request: %w", err)
+		return nil, fmt.Errorf("llm: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.settings.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.settings.APIKey)
 	}
 
+	requestedAt := time.Now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("llm: POST %s: %w", c.settings.Endpoint, err)
+		return nil, fmt.Errorf("llm: POST %s: %w", c.settings.Endpoint, err)
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(resp.Body)
+	respondedAt := time.Now()
 	if err != nil {
-		return "", fmt.Errorf("llm: read response: %w", err)
+		return nil, fmt.Errorf("llm: read response: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return "", fmt.Errorf("llm: HTTP %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+		return nil, fmt.Errorf("llm: HTTP %s: %s", resp.Status, strings.TrimSpace(string(raw)))
 	}
 
 	var result chatResponse
 	if err := json.Unmarshal(raw, &result); err != nil {
-		return "", fmt.Errorf("llm: decode response: %w", err)
+		return nil, fmt.Errorf("llm: decode response: %w", err)
 	}
 	if result.Error != nil {
-		return "", fmt.Errorf("llm: server error: %s", result.Error.Message)
+		return nil, fmt.Errorf("llm: server error: %s", result.Error.Message)
 	}
 	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("llm: empty choices in response")
+		return nil, fmt.Errorf("llm: empty choices in response")
 	}
 
-	return strings.TrimSpace(result.Choices[0].Message.Content), nil
+	out := &Response{
+		Content:     strings.TrimSpace(result.Choices[0].Message.Content),
+		RequestedAt: requestedAt,
+		RespondedAt: respondedAt,
+		Elapsed:     respondedAt.Sub(requestedAt),
+	}
+	if result.Usage != nil {
+		out.PromptTokens = result.Usage.PromptTokens
+		out.CompletionTokens = result.Usage.CompletionTokens
+		out.TotalTokens = result.Usage.TotalTokens
+	}
+	return out, nil
 }

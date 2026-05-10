@@ -7,6 +7,7 @@ package retrieval
 import (
 	"context"
 	"fmt"
+	"investment-analysis/util"
 
 	"github.com/playwright-community/playwright-go"
 )
@@ -31,7 +32,10 @@ type playwrightFetcher struct {
 //   - Realistic user agent and 1920×1080 viewport set on every context.
 //
 // The caller must call close() when done.
-func newPlaywrightFetcher(timeoutSeconds int) (*playwrightFetcher, error) {
+func newPlaywrightFetcher(timeoutSeconds int) (out *playwrightFetcher, err error) {
+	defer func() {
+		util.LogIfErr(nil, &err, "retrieval.newPlaywrightFetcher", "timeoutSeconds", timeoutSeconds)
+	}()
 	pw, err := playwright.Run()
 	if err != nil {
 		return nil, fmt.Errorf("playwright: start: %w", err)
@@ -54,8 +58,9 @@ func newPlaywrightFetcher(timeoutSeconds int) (*playwrightFetcher, error) {
 // activity to settle (giving JS challenges time to complete), then returns
 // the fully-rendered HTML.  A new context is created per call so cookies and
 // storage do not leak between requests.
-func (p *playwrightFetcher) fetch(_ context.Context, url string) ([]byte, string, error) {
-	ctx, err := p.browser.NewContext(playwright.BrowserNewContextOptions{
+func (p *playwrightFetcher) fetch(ctx context.Context, url string) (body []byte, mimeType string, err error) {
+	defer func() { util.LogIfErr(ctx, &err, "retrieval.playwrightFetcher.fetch", "url", url) }()
+	bctx, err := p.browser.NewContext(playwright.BrowserNewContextOptions{
 		UserAgent: playwright.String(firefoxUserAgent),
 		Viewport: &playwright.Size{
 			Width:  1920,
@@ -65,9 +70,9 @@ func (p *playwrightFetcher) fetch(_ context.Context, url string) ([]byte, string
 	if err != nil {
 		return nil, "", fmt.Errorf("playwright: new context: %w", err)
 	}
-	defer ctx.Close()
+	defer bctx.Close()
 
-	page, err := ctx.NewPage()
+	page, err := bctx.NewPage()
 	if err != nil {
 		return nil, "", fmt.Errorf("playwright: new page: %w", err)
 	}
@@ -119,7 +124,8 @@ func (p *playwrightFetcher) fetch(_ context.Context, url string) ([]byte, string
 }
 
 // close shuts down the browser and the Playwright subprocess.
-func (p *playwrightFetcher) close() error {
+func (p *playwrightFetcher) close() (err error) {
+	defer func() { util.LogIfErr(nil, &err, "retrieval.playwrightFetcher.close") }()
 	if err := p.browser.Close(); err != nil {
 		return fmt.Errorf("playwright: close browser: %w", err)
 	}

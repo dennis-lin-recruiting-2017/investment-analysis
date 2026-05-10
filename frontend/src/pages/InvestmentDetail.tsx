@@ -255,7 +255,7 @@ export default function InvestmentDetail() {
   const [categories, setCategories] = useState<string[]>([]);
   const [expenseError, setExpenseError] = useState<string | null>(null);
   const [savingExpense, setSavingExpense] = useState(false);
-  const [deletingExpenseId, setDeletingExpenseId] = useState<number | null>(null);
+  const [deletingExpenseId, setDeletingExpenseId] = useState<string | null>(null);
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>('months');
   const [showAddFlow, setShowAddFlow] = useState(false);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
@@ -263,7 +263,7 @@ export default function InvestmentDetail() {
   const [savingInvestmentDetails, setSavingInvestmentDetails] = useState(false);
   const [investmentDetailsError, setInvestmentDetailsError] = useState<string | null>(null);
   const [flowTab, setFlowTab] = useState<FlowTab>('one-time');
-  const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [categoryDraft, setCategoryDraft] = useState('');
   const [editingCategoryName, setEditingCategoryName] = useState<string | null>(null);
   const [categoryError, setCategoryError] = useState<string | null>(null);
@@ -277,8 +277,8 @@ export default function InvestmentDetail() {
   const [saleAssumptionAmountInput, setSaleAssumptionAmountInput] = useState('0');
   const [saleAssumptionError, setSaleAssumptionError] = useState<string | null>(null);
   const [savingSaleAssumption, setSavingSaleAssumption] = useState(false);
-  const [editingSaleAssumptionId, setEditingSaleAssumptionId] = useState<number | null>(null);
-  const [deletingSaleAssumptionId, setDeletingSaleAssumptionId] = useState<number | null>(null);
+  const [editingSaleAssumptionId, setEditingSaleAssumptionId] = useState<string | null>(null);
+  const [deletingSaleAssumptionId, setDeletingSaleAssumptionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!uuid) {

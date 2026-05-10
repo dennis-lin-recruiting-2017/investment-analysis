@@ -20,7 +20,7 @@ type Props = {
   open: boolean;
   saving: boolean;
   error: string | null;
-  editingExpenseId: number | null;
+  editingExpenseId: string | null;
   flowTab: FlowTab;
   expenseForm: InvestmentExpenseInput;
   amountInput: string;

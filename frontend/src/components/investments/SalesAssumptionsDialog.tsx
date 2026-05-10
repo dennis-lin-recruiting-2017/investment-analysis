@@ -26,8 +26,8 @@ import type { InvestmentSaleAssumption, InvestmentSaleAssumptionInput } from '..
 type Props = {
   open: boolean;
   saving: boolean;
-  deletingId: number | null;
-  editingId: number | null;
+  deletingId: string | null;
+  editingId: string | null;
   error: string | null;
   form: InvestmentSaleAssumptionInput;
   amountInput: string;

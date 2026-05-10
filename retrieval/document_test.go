@@ -1,7 +1,7 @@
 package retrieval
 
 import (
-	"context"
+	"investment-analysis/util"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,14 +10,15 @@ import (
 
 	"investment-analysis/persistence"
 	"investment-analysis/persistence/model"
+	"investment-analysis/persistence/sqlite"
 )
 
 // openTestStore creates a real SQLite database in the test's temp directory.
 // Using a real store exercises the full path: SQL schema creation, inserts,
 // and reads — without touching any production file.
-func openTestStore(t *testing.T) *persistence.GormStore {
+func openTestStore(t *testing.T) *persistence.Store {
 	t.Helper()
-	store, err := persistence.OpenFile(filepath.Join(t.TempDir(), "test.db"))
+	store, err := sqlite.NewStore(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("openTestStore: %v", err)
 	}
@@ -53,14 +54,14 @@ func TestSaveDocument_Success(t *testing.T) {
 
 	srv := newTestServer(t, http.StatusOK, wantMIME, wantBody)
 	store := openTestStore(t)
-	client := NewClient("test-agent/1.0", store)
+	client := NewClient("test-agent/1.0", store.Documents, store.RetrievalAttempts)
 
-	if err := client.SaveDocument(context.Background(), srv.URL, key, model.AnnualReport, label); err != nil {
+	if err := client.SaveDocument(util.NewTraceContext(), srv.URL, key, model.AnnualReport, label); err != nil {
 		t.Fatalf("SaveDocument returned unexpected error: %v", err)
 	}
 
 	// Retrieve the stored body through the store and verify content.
-	got, err := store.GetDocumentBody(context.Background(), key)
+	got, err := store.Documents.GetBody(util.NewTraceContext(), key)
 	if err != nil {
 		t.Fatalf("GetDocumentBody: %v", err)
 	}
@@ -74,17 +75,17 @@ func TestSaveDocument_Success(t *testing.T) {
 func TestSaveDocument_StoresMIMEType(t *testing.T) {
 	srv := newTestServer(t, http.StatusOK, "application/pdf", "%PDF-1.4 fake pdf")
 	store := openTestStore(t)
-	client := NewClient("", store)
+	client := NewClient("", store.Documents, store.RetrievalAttempts)
 
 	key := "pdf-doc|test"
-	if err := client.SaveDocument(context.Background(), srv.URL, key, model.DocumentType("pdf"), ""); err != nil {
+	if err := client.SaveDocument(util.NewTraceContext(), srv.URL, key, model.DocumentType("pdf"), ""); err != nil {
 		t.Fatalf("SaveDocument: %v", err)
 	}
 
 	// The MIME type is stored on the DocumentRow; we can confirm indirectly
 	// that it was stored by verifying the body is retrievable (a full MIME
 	// assertion would require an unexported field or a Store extension).
-	body, err := store.GetDocumentBody(context.Background(), key)
+	body, err := store.Documents.GetBody(util.NewTraceContext(), key)
 	if err != nil {
 		t.Fatalf("GetDocumentBody: %v", err)
 	}
@@ -106,8 +107,8 @@ func TestSaveDocument_AlreadyExists(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	store := openTestStore(t)
-	client := NewClient("", store)
-	ctx := context.Background()
+	client := NewClient("", store.Documents, store.RetrievalAttempts)
+	ctx := util.NewTraceContext()
 	key := "dup-doc|001"
 
 	// First call — should fetch and store.
@@ -132,10 +133,10 @@ func TestSaveDocument_AlreadyExists(t *testing.T) {
 func TestSaveDocument_ServerError(t *testing.T) {
 	srv := newTestServer(t, http.StatusInternalServerError, "", "something went wrong")
 	store := openTestStore(t)
-	client := NewClient("", store)
+	client := NewClient("", store.Documents, store.RetrievalAttempts)
 
 	key := "error-doc|001"
-	err := client.SaveDocument(context.Background(), srv.URL, key, model.DocumentType("test"), "")
+	err := client.SaveDocument(util.NewTraceContext(), srv.URL, key, model.DocumentType("test"), "")
 	if err == nil {
 		t.Fatal("expected error for 500 response, got nil")
 	}
@@ -144,7 +145,7 @@ func TestSaveDocument_ServerError(t *testing.T) {
 	}
 
 	// Nothing should have been stored.
-	if _, dbErr := store.GetDocumentBody(context.Background(), key); dbErr == nil {
+	if _, dbErr := store.Documents.GetBody(util.NewTraceContext(), key); dbErr == nil {
 		t.Error("document should not be stored after a server error")
 	}
 }
@@ -158,14 +159,14 @@ func TestSaveDocument_NetworkFailure(t *testing.T) {
 	srv.Close() // close before the request is made
 
 	store := openTestStore(t)
-	client := NewClient("", store)
+	client := NewClient("", store.Documents, store.RetrievalAttempts)
 
 	key := "net-fail|001"
-	if err := client.SaveDocument(context.Background(), deadURL, key, model.DocumentType("test"), ""); err == nil {
+	if err := client.SaveDocument(util.NewTraceContext(), deadURL, key, model.DocumentType("test"), ""); err == nil {
 		t.Fatal("expected network error, got nil")
 	}
 
-	if _, dbErr := store.GetDocumentBody(context.Background(), key); dbErr == nil {
+	if _, dbErr := store.Documents.GetBody(util.NewTraceContext(), key); dbErr == nil {
 		t.Error("document should not be stored after a network failure")
 	}
 }
@@ -181,16 +182,16 @@ func TestSaveDocument_FallbackMIMEType(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	store := openTestStore(t)
-	client := NewClient("", store)
+	client := NewClient("", store.Documents, store.RetrievalAttempts)
 
 	key := "octet-doc|001"
-	if err := client.SaveDocument(context.Background(), srv.URL, key, model.DocumentType("raw"), ""); err != nil {
+	if err := client.SaveDocument(util.NewTraceContext(), srv.URL, key, model.DocumentType("raw"), ""); err != nil {
 		t.Fatalf("SaveDocument: %v", err)
 	}
 
 	// Verify the document was stored (MIME type is an internal field; the key
 	// observable here is that the body was persisted correctly).
-	body, err := store.GetDocumentBody(context.Background(), key)
+	body, err := store.Documents.GetBody(util.NewTraceContext(), key)
 	if err != nil {
 		t.Fatalf("GetDocumentBody: %v", err)
 	}
@@ -213,9 +214,9 @@ func TestSaveDocument_UserAgentForwarded(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	store := openTestStore(t)
-	client := NewClient(wantUA, store)
+	client := NewClient(wantUA, store.Documents, store.RetrievalAttempts)
 
-	if err := client.SaveDocument(context.Background(), srv.URL, "ua-doc|001", model.DocumentType("test"), ""); err != nil {
+	if err := client.SaveDocument(util.NewTraceContext(), srv.URL, "ua-doc|001", model.DocumentType("test"), ""); err != nil {
 		t.Fatalf("SaveDocument: %v", err)
 	}
 	if gotUA != wantUA {
@@ -235,9 +236,9 @@ func TestSaveDocument_EmptyUserAgentUsesDefault(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	store := openTestStore(t)
-	client := NewClient("", store) // blank → should use DefaultUserAgent
+	client := NewClient("", store.Documents, store.RetrievalAttempts) // blank → should use DefaultUserAgent
 
-	if err := client.SaveDocument(context.Background(), srv.URL, "default-ua|001", model.DocumentType("test"), ""); err != nil {
+	if err := client.SaveDocument(util.NewTraceContext(), srv.URL, "default-ua|001", model.DocumentType("test"), ""); err != nil {
 		t.Fatalf("SaveDocument: %v", err)
 	}
 	if gotUA != DefaultUserAgent {

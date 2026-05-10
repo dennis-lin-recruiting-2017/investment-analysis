@@ -2,26 +2,25 @@ package http
 
 import (
 	"encoding/json"
-	model2 "investment-analysis/persistence/model"
 	nethttp "net/http"
-	"strconv"
 	"strings"
 
 	"investment-analysis/persistence"
+	"investment-analysis/persistence/model"
 )
 
-func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
+func RegisterAPI(mux *nethttp.ServeMux, db *persistence.Store) {
 	mux.HandleFunc("/api/investments", withCORS(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
 		case nethttp.MethodGet:
-			investments, err := db.ListInvestments()
+			investments, err := db.Investments.List()
 			if err != nil {
 				writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
 			writeJSON(w, nethttp.StatusOK, investments)
 		case nethttp.MethodPost:
-			var investment model2.Investment
+			var investment model.Investment
 			if err := json.NewDecoder(r.Body).Decode(&investment); err != nil {
 				writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 				return
@@ -30,7 +29,7 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 				writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "name, assetClass, and thesis are required"})
 				return
 			}
-			created, err := db.CreateInvestment(investment)
+			created, err := db.Investments.Create(investment)
 			if err != nil {
 				writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
@@ -56,14 +55,14 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 		if len(pathParts) == 2 && pathParts[1] == "expenses" {
 			switch r.Method {
 			case nethttp.MethodGet:
-				expenses, err := db.ListInvestmentExpenses(investmentUUID)
+				expenses, err := db.InvestmentExpenses.List(investmentUUID)
 				if err != nil {
 					writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
 				}
 				writeJSON(w, nethttp.StatusOK, expenses)
 			case nethttp.MethodPost:
-				var expense model2.InvestmentExpense
+				var expense model.InvestmentExpense
 				if err := json.NewDecoder(r.Body).Decode(&expense); err != nil {
 					writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 					return
@@ -110,14 +109,14 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 					expense.AdjustmentValue = 0
 				}
 				expense.DueDate = expense.EndDate
-				if _, err := db.GetInvestment(investmentUUID); err == persistence.ErrNotFound {
+				if _, err := db.Investments.Get(investmentUUID); err == model.ErrNotFound {
 					writeJSON(w, nethttp.StatusNotFound, map[string]string{"error": "investment not found"})
 					return
 				} else if err != nil {
 					writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
 				}
-				created, err := db.CreateInvestmentExpense(investmentUUID, expense)
+				created, err := db.InvestmentExpenses.Create(investmentUUID, expense)
 				if err != nil {
 					writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
@@ -134,14 +133,14 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 		if len(pathParts) == 2 && pathParts[1] == "sale-assumptions" {
 			switch r.Method {
 			case nethttp.MethodGet:
-				assumptions, err := db.ListInvestmentSaleAssumptions(investmentUUID)
+				assumptions, err := db.InvestmentSaleAssumptions.List(investmentUUID)
 				if err != nil {
 					writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
 				}
 				writeJSON(w, nethttp.StatusOK, assumptions)
 			case nethttp.MethodPost:
-				var assumption model2.InvestmentSaleAssumption
+				var assumption model.InvestmentSaleAssumption
 				if err := json.NewDecoder(r.Body).Decode(&assumption); err != nil {
 					writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 					return
@@ -171,7 +170,7 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 					assumption.GrowthMode = ""
 					assumption.GrowthValue = 0
 				}
-				created, err := db.CreateInvestmentSaleAssumption(investmentUUID, assumption)
+				created, err := db.InvestmentSaleAssumptions.Create(investmentUUID, assumption)
 				if err != nil {
 					writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
@@ -188,7 +187,7 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 		if len(pathParts) == 2 && pathParts[1] == "categories" {
 			switch r.Method {
 			case nethttp.MethodGet:
-				categories, err := db.ListInvestmentCategories(investmentUUID)
+				categories, err := db.InvestmentCategories.List(investmentUUID)
 				if err != nil {
 					writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
@@ -206,11 +205,11 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 					writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "category name is required"})
 					return
 				}
-				if err := db.CreateInvestmentCategory(investmentUUID, payload.Name); err != nil {
+				if err := db.InvestmentCategories.Create(investmentUUID, payload.Name); err != nil {
 					writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
 				}
-				categories, err := db.ListInvestmentCategories(investmentUUID)
+				categories, err := db.InvestmentCategories.List(investmentUUID)
 				if err != nil {
 					writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
@@ -244,28 +243,28 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 					writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "category name is required"})
 					return
 				}
-				if err := db.UpdateInvestmentCategory(investmentUUID, categoryName, payload.Name); err == persistence.ErrNotFound {
+				if err := db.InvestmentCategories.Rename(investmentUUID, categoryName, payload.Name); err == model.ErrNotFound {
 					writeJSON(w, nethttp.StatusNotFound, map[string]string{"error": "category not found"})
 					return
 				} else if err != nil {
 					writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
 				}
-				categories, err := db.ListInvestmentCategories(investmentUUID)
+				categories, err := db.InvestmentCategories.List(investmentUUID)
 				if err != nil {
 					writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
 				}
 				writeJSON(w, nethttp.StatusOK, categories)
 			case nethttp.MethodDelete:
-				if err := db.DeleteInvestmentCategory(investmentUUID, categoryName); err == persistence.ErrNotFound {
+				if err := db.InvestmentCategories.Delete(investmentUUID, categoryName); err == model.ErrNotFound {
 					writeJSON(w, nethttp.StatusNotFound, map[string]string{"error": "category not found"})
 					return
 				} else if err != nil {
 					writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
 				}
-				categories, err := db.ListInvestmentCategories(investmentUUID)
+				categories, err := db.InvestmentCategories.List(investmentUUID)
 				if err != nil {
 					writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
@@ -280,15 +279,15 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 		}
 
 		if len(pathParts) == 3 && pathParts[1] == "expenses" {
-			expenseID, err := strconv.ParseInt(pathParts[2], 10, 64)
-			if err != nil {
+			expenseID := pathParts[2]
+			if strings.TrimSpace(expenseID) == "" {
 				writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "invalid expense id"})
 				return
 			}
 
 			switch r.Method {
 			case nethttp.MethodPut:
-				var expense model2.InvestmentExpense
+				var expense model.InvestmentExpense
 				if err := json.NewDecoder(r.Body).Decode(&expense); err != nil {
 					writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 					return
@@ -335,8 +334,8 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 					expense.AdjustmentValue = 0
 				}
 				expense.DueDate = expense.EndDate
-				updated, err := db.UpdateInvestmentExpense(investmentUUID, expenseID, expense)
-				if err == persistence.ErrNotFound {
+				updated, err := db.InvestmentExpenses.UpdateByID(investmentUUID, expenseID, expense)
+				if err == model.ErrNotFound {
 					writeJSON(w, nethttp.StatusNotFound, map[string]string{"error": "payment flow not found"})
 					return
 				}
@@ -346,8 +345,8 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 				}
 				writeJSON(w, nethttp.StatusOK, updated)
 			case nethttp.MethodDelete:
-				err := db.DeleteInvestmentExpense(investmentUUID, expenseID)
-				if err == persistence.ErrNotFound {
+				err := db.InvestmentExpenses.Delete(investmentUUID, expenseID)
+				if err == model.ErrNotFound {
 					writeJSON(w, nethttp.StatusNotFound, map[string]string{"error": "payment flow not found"})
 					return
 				}
@@ -365,15 +364,15 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 		}
 
 		if len(pathParts) == 3 && pathParts[1] == "sale-assumptions" {
-			assumptionID, err := strconv.ParseInt(pathParts[2], 10, 64)
-			if err != nil {
+			assumptionID := pathParts[2]
+			if strings.TrimSpace(assumptionID) == "" {
 				writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "invalid sale assumption id"})
 				return
 			}
 
 			switch r.Method {
 			case nethttp.MethodPut:
-				var assumption model2.InvestmentSaleAssumption
+				var assumption model.InvestmentSaleAssumption
 				if err := json.NewDecoder(r.Body).Decode(&assumption); err != nil {
 					writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 					return
@@ -403,8 +402,8 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 					assumption.GrowthMode = ""
 					assumption.GrowthValue = 0
 				}
-				updated, err := db.UpdateInvestmentSaleAssumption(investmentUUID, assumptionID, assumption)
-				if err == persistence.ErrNotFound {
+				updated, err := db.InvestmentSaleAssumptions.UpdateByID(investmentUUID, assumptionID, assumption)
+				if err == model.ErrNotFound {
 					writeJSON(w, nethttp.StatusNotFound, map[string]string{"error": "sale assumption not found"})
 					return
 				}
@@ -414,8 +413,8 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 				}
 				writeJSON(w, nethttp.StatusOK, updated)
 			case nethttp.MethodDelete:
-				err := db.DeleteInvestmentSaleAssumption(investmentUUID, assumptionID)
-				if err == persistence.ErrNotFound {
+				err := db.InvestmentSaleAssumptions.Delete(investmentUUID, assumptionID)
+				if err == model.ErrNotFound {
 					writeJSON(w, nethttp.StatusNotFound, map[string]string{"error": "sale assumption not found"})
 					return
 				}
@@ -439,8 +438,8 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 
 		switch r.Method {
 		case nethttp.MethodGet:
-			investment, err := db.GetInvestment(investmentUUID)
-			if err == persistence.ErrNotFound {
+			investment, err := db.Investments.Get(investmentUUID)
+			if err == model.ErrNotFound {
 				writeJSON(w, nethttp.StatusNotFound, map[string]string{"error": "investment not found"})
 				return
 			}
@@ -450,7 +449,7 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 			}
 			writeJSON(w, nethttp.StatusOK, investment)
 		case nethttp.MethodPut:
-			var investment model2.Investment
+			var investment model.Investment
 			if err := json.NewDecoder(r.Body).Decode(&investment); err != nil {
 				writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 				return
@@ -459,8 +458,8 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 				writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "name, assetClass, and thesis are required"})
 				return
 			}
-			updated, err := db.UpdateInvestment(investmentUUID, investment)
-			if err == persistence.ErrNotFound {
+			updated, err := db.Investments.UpdateByUUID(investmentUUID, investment)
+			if err == model.ErrNotFound {
 				writeJSON(w, nethttp.StatusNotFound, map[string]string{"error": "investment not found"})
 				return
 			}
@@ -470,8 +469,8 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 			}
 			writeJSON(w, nethttp.StatusOK, updated)
 		case nethttp.MethodDelete:
-			err := db.DeleteInvestment(investmentUUID)
-			if err == persistence.ErrNotFound {
+			err := db.Investments.Delete(investmentUUID)
+			if err == model.ErrNotFound {
 				writeJSON(w, nethttp.StatusNotFound, map[string]string{"error": "investment not found"})
 				return
 			}
@@ -490,7 +489,7 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 	mux.HandleFunc("/api/settings", withCORS(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
 		case nethttp.MethodGet:
-			settings, err := db.ListSettings()
+			settings, err := db.LLMSettings.List()
 			if err != nil {
 				writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
@@ -513,14 +512,14 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 
 		switch r.Method {
 		case nethttp.MethodGet:
-			settings, err := db.GetSettings(provider)
+			settings, err := db.LLMSettings.Get(provider)
 			if err != nil {
 				writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
 			writeJSON(w, nethttp.StatusOK, settings)
 		case nethttp.MethodPut, nethttp.MethodPost:
-			var s model2.LLMSettings
+			var s model.LLMSettings
 			if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
 				writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 				return
@@ -530,17 +529,17 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 				writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "endpoint and model are required"})
 				return
 			}
-			if err := db.UpsertSettings(s); err != nil {
+			if _, err := db.LLMSettings.InsertOrUpdate(&s); err != nil {
 				writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
 			writeJSON(w, nethttp.StatusOK, s)
 		case nethttp.MethodDelete:
-			if err := db.DeleteSettings(provider); err != nil {
+			if err := db.LLMSettings.Delete(provider); err != nil {
 				writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
-			writeJSON(w, nethttp.StatusOK, map[string]any{"provider": provider, "deleted": true, "defaults": model2.DefaultSettings(provider)})
+			writeJSON(w, nethttp.StatusOK, map[string]any{"provider": provider, "deleted": true, "defaults": model.DefaultSettings(provider)})
 		case nethttp.MethodOptions:
 			w.WriteHeader(nethttp.StatusNoContent)
 		default:
@@ -551,14 +550,14 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 	mux.HandleFunc("/api/retrieval-settings", withCORS(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
 		case nethttp.MethodGet:
-			settings, err := db.GetRetrievalSettings()
+			settings, err := db.RetrievalSettings.Get()
 			if err != nil {
 				writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
 			writeJSON(w, nethttp.StatusOK, settings)
 		case nethttp.MethodPut, nethttp.MethodPost:
-			var s model2.RetrievalSettings
+			var s model.RetrievalSettings
 			if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
 				writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
@@ -567,7 +566,7 @@ func RegisterAPI(mux *nethttp.ServeMux, db persistence.Store) {
 				writeJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "playwrightTimeoutSeconds must be greater than 0"})
 				return
 			}
-			if err := db.UpsertRetrievalSettings(s); err != nil {
+			if _, err := db.RetrievalSettings.InsertOrUpdate(&s); err != nil {
 				writeJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
